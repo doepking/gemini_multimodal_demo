@@ -34,7 +34,7 @@ Before running this application, you'll need the following:
 2. **Install other required Python packages:**
 
     ```bash
-    pip install -r requirements.txt
+    pip3 install -r requirements.txt
     ```
 
 ### Using Docker
