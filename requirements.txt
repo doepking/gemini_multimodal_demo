@@ -1,0 +1,6 @@
+streamlit>=1.29.0
+python-dotenv
+fsspec
+gcsfs
+google-genai
+streamlit-audiorecorder
