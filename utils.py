@@ -245,9 +245,6 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     5.  If no function call is needed, respond directly to the user's query or statement.
     """
 
-    # Create a GenerativeModel instance
-    model = genai.GenerativeModel(MODEL_NAME)
-
     contents = [] # Initialize contents as an empty list
 
     # Add conversation history
@@ -305,7 +302,8 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
                 for s in safety_settings
             ],
         )
-        response = model.generate_content(
+        response = client.models.generate_content( # Use the client object
+            model=MODEL_NAME, # Specify the model name
             contents=contents,
             config=generation_config_with_tools, # Pass the config object
         )
