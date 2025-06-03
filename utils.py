@@ -245,11 +245,8 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     5.  If no function call is needed, respond directly to the user's query or statement.
     """
 
-    # Create a GenerativeModel instance with the system prompt
-    model_with_system_instruction = genai.GenerativeModel(
-        MODEL_NAME,
-        system_instruction=system_prompt
-    )
+    # Create a GenerativeModel instance
+    model = genai.GenerativeModel(MODEL_NAME)
 
     contents = [] # Initialize contents as an empty list
 
@@ -299,6 +296,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     logger.info(f"Sending request to LLM. Content length: {len(contents)}")
     try:
         generation_config_with_tools = types.GenerateContentConfig(
+            system_instruction=system_prompt,
             tools=[chat_tools],  # Tools included in the config
             max_output_tokens=2048,
             temperature=0.7,
@@ -307,7 +305,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
                 for s in safety_settings
             ],
         )
-        response = model_with_system_instruction.generate_content(
+        response = model.generate_content(
             contents=contents,
             config=generation_config_with_tools, # Pass the config object
         )
@@ -330,9 +328,22 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         function_args = dict(fc.args)
         logger.info(f"LLM requested function call: {function_name} with args: {function_args}")
 
-        # Add LLM's intent to call function to history
-        conversation_history.append({"role": "model", "content": [{"function_call": fc}]})
+        # Extract any text parts from the LLM's response that decided to call a function
+        initial_llm_text_parts = []
+        for part in candidate.content.parts:
+            if hasattr(part, "text") and part.text:
+                initial_llm_text_parts.append(part.text)
+        
+        final_text_response_to_user = " ".join(initial_llm_text_parts).strip()
 
+        # Add LLM's intent to call function to history
+        # The content for the history should represent the model's turn accurately.
+        # If the model's turn included text and a function call, both should be there.
+        model_turn_content_for_history = []
+        if final_text_response_to_user:
+             model_turn_content_for_history.append({"text": final_text_response_to_user})
+        model_turn_content_for_history.append({"function_call": fc})
+        conversation_history.append({"role": "model", "content": model_turn_content_for_history})
 
         function_response_content = {}
         if function_name == "process_text_input_for_log":
@@ -343,72 +354,55 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             )
             function_response_content = result
             if result.get("status") == "success":
-                ui_update_message = result.get("message")
+                ui_update_message = result.get("message") # This is for the UI toast/message
 
         elif function_name == "update_background_info_in_session":
             result = update_background_info_in_session_impl(
-                background_update_json=function_args.get("background_update_json"),
+                background_update_json=function_args.get("background_update_json"), # Corrected param name
                 session_state=session_state
             )
             function_response_content = result
             if result.get("status") == "success":
-                ui_update_message = result.get("message")
+                ui_update_message = result.get("message") # This is for the UI toast/message
         else:
             logger.warning(f"LLM called unknown function: {function_name}")
             function_response_content = {"status": "error", "message": f"Unknown function: {function_name}"}
+            ui_update_message = f"Error: Unknown function '{function_name}' called."
 
-        # --- Second LLM Call (to get natural language response after function execution) ---
-        # Add function execution result to contents for the next LLM call
-        contents.append({
-            "role": "model", # LLM's turn that decided to call function
-            "parts": [{"function_call": fc}] 
+        # Add function execution result to history (for LLM's context in future turns if needed)
+        conversation_history.append({
+            "role": "function", 
+            "content": [{"function_response": {"name": function_name, "response": function_response_content}}]
         })
-        contents.append({
-            "role": "function", # Function's turn providing the result
-            "parts": [{"function_response": {"name": function_name, "response": function_response_content}}]
-        })
-        # Add function response to history
-        conversation_history.append({"role": "function", "content": [{"function_response": {"name": function_name, "response": function_response_content}}]})
 
-
-        logger.info("Sending request to LLM again with function response.")
-        try:
-            response_after_fc = model_with_system_instruction.generate_content(
-                contents=contents, # Send updated contents
-                # No tools needed here, expecting a text response
-                config=types.GenerateContentConfig(
-                    max_output_tokens=1024, # Shorter response expected
-                    temperature=0.7,
-                    safety_settings=[
-                        types.SafetySetting(category=s["category"], threshold=s["threshold"])
-                        for s in safety_settings
-                    ],
-                ),
-            )
-            if response_after_fc.candidates and response_after_fc.candidates[0].content.parts:
-                for part in response_after_fc.candidates[0].content.parts:
-                    if hasattr(part, "text") and part.text:
-                        final_text_response_to_user += part.text
-            else:
-                final_text_response_to_user = "Okay, I've processed that." # Fallback
-        except Exception as e_fc_resp:
-            logger.error(f"LLM error after function call: {e_fc_resp}", exc_info=True)
-            final_text_response_to_user = f"I processed the function, but had trouble forming a follow-up: {e_fc_resp}"
-
+        # Construct final response to user by combining initial LLM text and function UI message
+        if ui_update_message:
+            if final_text_response_to_user: # If LLM gave some initial text
+                final_text_response_to_user += f"\n\n{ui_update_message}"
+            else: # If LLM only called a function without preceding text
+                final_text_response_to_user = ui_update_message
+        elif not final_text_response_to_user: # Fallback if no initial text and no UI message
+            final_text_response_to_user = "I've processed that."
+            
     else: # No function call, direct text response from LLM
         if candidate.content.parts:
             for part in candidate.content.parts:
                 if hasattr(part, "text") and part.text:
                     final_text_response_to_user += part.text
+            conversation_history.append({"role": "model", "content": final_text_response_to_user})
         else:
             logger.warning("LLM response had no parts or no text in parts.")
             final_text_response_to_user = "I'm not sure how to respond to that."
+            conversation_history.append({"role": "model", "content": final_text_response_to_user})
 
-    if not final_text_response_to_user.strip(): # If LLM returns empty string after function call
-        final_text_response_to_user = ui_update_message if ui_update_message else "Processed."
+    # Ensure there's always some response text
+    if not final_text_response_to_user.strip():
+        final_text_response_to_user = "Processed."
+        # If history already has the model turn from function call path, don't add again.
+        # Only add if it was a direct text response path that somehow ended up empty.
+        if not (candidate.content.parts and candidate.content.parts[0].function_call):
+             conversation_history.append({"role": "model", "content": final_text_response_to_user})
 
-    # Add final assistant response to history
-    conversation_history.append({"role": "model", "content": final_text_response_to_user})
 
     logger.info(f"Final text response to user: {final_text_response_to_user}")
     if ui_update_message:
