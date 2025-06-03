@@ -206,9 +206,7 @@ def start_new_chat():
     return []  # Initialize an empty conversation history
 
 def get_chat_response(conversation_history, session_state, user_prompt=None, audio_file_path=None):
-    """
-    Gets a response from the Gemini model, handling text, audio, and function calls.
-    """
+    """Gets a response from the Gemini model, handling text, audio, and function calls."""
     current_bg_info_str = json.dumps(session_state.get('background_info', {}), indent=2)
     recent_logs_preview = [log.get('content_preview', 'Log entry') for log in session_state.get('input_log', [])[-5:]] # Last 5 logs
     recent_logs_str = "\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
@@ -247,7 +245,13 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     5.  If no function call is needed, respond directly to the user's query or statement.
     """
 
-    contents = [{"role": "system", "parts": [{"text": system_prompt}]}] # Start with system prompt
+    # Create a GenerativeModel instance with the system prompt
+    model_with_system_instruction = genai.GenerativeModel(
+        MODEL_NAME,
+        system_instruction=system_prompt
+    )
+
+    contents = [] # Initialize contents as an empty list
 
     # Add conversation history
     for turn in conversation_history:
@@ -303,8 +307,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
                 for s in safety_settings
             ],
         )
-        response = client.models.generate_content(
-            model=MODEL_NAME,
+        response = model_with_system_instruction.generate_content(
             contents=contents,
             config=generation_config_with_tools, # Pass the config object
         )
@@ -370,8 +373,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
 
         logger.info("Sending request to LLM again with function response.")
         try:
-            response_after_fc = client.models.generate_content(
-                model=MODEL_NAME,
+            response_after_fc = model_with_system_instruction.generate_content(
                 contents=contents, # Send updated contents
                 # No tools needed here, expecting a text response
                 config=types.GenerateContentConfig(
