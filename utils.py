@@ -294,18 +294,19 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     # --- First LLM Call (to decide on function call or direct response) ---
     logger.info(f"Sending request to LLM. Content length: {len(contents)}")
     try:
+        generation_config_with_tools = types.GenerateContentConfig(
+            tools=[chat_tools],  # Tools included in the config
+            max_output_tokens=2048,
+            temperature=0.7,
+            safety_settings=[
+                types.SafetySetting(category=s["category"], threshold=s["threshold"])
+                for s in safety_settings
+            ],
+        )
         response = client.models.generate_content(
-            model=MODEL_NAME, # Ensure this model supports function calling
+            model=MODEL_NAME,
             contents=contents,
-            tools=[chat_tools], # Pass the defined tools
-            config=types.GenerateContentConfig(
-                max_output_tokens=2048,
-                temperature=0.7, # Adjust as needed
-                safety_settings=[
-                    types.SafetySetting(category=s["category"], threshold=s["threshold"])
-                    for s in safety_settings
-                ],
-            ),
+            config=generation_config_with_tools, # Pass the config object
         )
     except Exception as e:
         logger.error(f"LLM generation error: {e}", exc_info=True)
