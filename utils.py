@@ -240,8 +240,8 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         interpret their free-form text, extract the relevant information, structure it as a JSON string according to the schema,
         and call `update_background_info_in_session` with the `background_update_json` argument containing this JSON string.
         The JSON string you provide for `background_update_json` must be valid. If string values within your generated JSON contain special characters (like quotes, backslashes, newlines), ensure they are properly escaped (e.g., \" for quotes, \\\\ for backslashes, \\n for newlines).
-        Example: User says "My main goal now is to exercise more, and I live in Berlin." -> Call `update_background_info_in_session` with background_update_json='{"goals": ["Exercise more"], "user_profile": {"location": {"city": "Berlin"}}}'.
-        Example with escaping: User says "My note is about \"quotes\" and backslashes \\." -> Call `update_background_info_in_session` with background_update_json='{"user_provided_info": "My note is about \\\"quotes\\\" and backslashes \\\\."}'.
+        Example: User says "My main goal now is to exercise more, and I live in Berlin." -> Call `update_background_info_in_session` with background_update_json='{{"goals": ["Exercise more"], "user_profile": {{"location": {{"city": "Berlin"}}}}}}'.
+        Example with escaping: User says "My note is about \"quotes\" and backslashes \\." -> Call `update_background_info_in_session` with background_update_json='{{"user_provided_info": "My note is about \\\"quotes\\\" and backslashes \\\\."}}'.
     3.  You can call multiple functions if appropriate. For example, if a user says "I learned that my value is 'kindness' and I want to log that I had a good day", you could call both functions.
     4.  After a function call, I will provide you with the result. You should then formulate a natural language response to the user based on that result and the conversation context.
     5.  If no function call is needed, respond directly to the user's query or statement.
