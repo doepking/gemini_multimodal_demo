@@ -143,7 +143,7 @@ def process_text_input_for_log_impl(text_input: str, category_suggestion: str = 
     logger.info(f"Input logged: {log_entry['content_preview']}")
     return {"status": "success", "message": f"Log added: '{log_entry['content_preview']}'", "entry": log_entry}
 
-def update_background_info_in_session_impl(background_update_text: str, session_state=None):
+def update_background_info_in_session_impl(background_update_json: str, session_state=None):
     """
     Updates background information in st.session_state.background_info.
     (Simplified version for session state - attempts a basic merge or overwrite for 'user_provided_info')
@@ -159,7 +159,7 @@ def update_background_info_in_session_impl(background_update_text: str, session_
     # A more sophisticated version would parse background_update_text and merge into structured fields.
     try:
         # Attempt to parse as JSON if user provides structured data
-        potential_json = json.loads(background_update_text)
+        potential_json = json.loads(background_update_json)
         if isinstance(potential_json, dict):
             for key, value in potential_json.items():
                 if key in session_state.background_info and isinstance(session_state.background_info[key], list) and isinstance(value, list):
@@ -173,11 +173,11 @@ def update_background_info_in_session_impl(background_update_text: str, session_
                     session_state.background_info[key] = value
             message = "Background information merged from structured input."
         else: # Not a dict, treat as free text for 'user_provided_info'
-            session_state.background_info["user_provided_info"] = background_update_text
+            session_state.background_info["user_provided_info"] = background_update_json
             message = "Background information updated with free text."
     except json.JSONDecodeError:
         # If not JSON, assume it's free text for the general info field
-        session_state.background_info["user_provided_info"] = background_update_text
+        session_state.background_info["user_provided_info"] = background_update_json
         message = "Background information updated with free text."
 
     logger.info(f"Background info updated. Current: {session_state.background_info}")
