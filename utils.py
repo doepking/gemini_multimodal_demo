@@ -1,13 +1,13 @@
 import os
 import logging
-import json # Added
-import datetime as dt # Added
+import json
+import datetime as dt
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__) # Use a logger
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()

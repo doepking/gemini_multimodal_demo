@@ -2,7 +2,6 @@ import os
 import tempfile
 import streamlit as st
 from audiorecorder import audiorecorder
-import datetime as dt
 import pandas as pd
 
 from utils import get_chat_response, start_new_chat, process_text_input_for_log, update_background_info_in_session
@@ -11,7 +10,7 @@ from utils import get_chat_response, start_new_chat, process_text_input_for_log,
 st.set_page_config(
     page_title="Gemini Multimodal Demo",
     page_icon=":speech_balloon:",
-    layout="wide" # Changed to wide for tabs
+    layout="wide"
 )
 
 # --- Initialize Session State ---
@@ -99,7 +98,7 @@ with tab1:
                 # Pass session state to get_chat_response for function calling
                 response_data = get_chat_response(
                     st.session_state.conversation_history,
-                    st.session_state, # Pass the whole session state
+                    st.session_state,
                     audio_file_path=tmp_audio_path
                 )
             
@@ -168,13 +167,9 @@ with tab2:
         submit_log = st.form_submit_button("Add to Log")
 
         if submit_log and new_log_content:
-            # This needs to call a function in utils.py
-            # that involved LLM processing (categorization, scoring)
-            # This will be replaced by a call to a util function later.
             processed_entry = process_text_input_for_log(new_log_content, st.session_state)
             st.session_state.input_log.append(processed_entry)
             st.success(f"Log added: '{processed_entry.get('content_preview', 'Entry')}'")
-            # No rerun needed here, form submission handles it.
 
 with tab3:
     st.header("Background Info")
@@ -199,8 +194,5 @@ with tab3:
         submit_background = st.form_submit_button("Save Background Info")
 
         if submit_background and background_text:
-            # This will call a util function to process and merge the text
-            # into st.session_state.background_info
             update_background_info_in_session(background_text, st.session_state)
             st.success("Background information updated!")
-            # No rerun needed here, form submission handles it.
