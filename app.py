@@ -147,19 +147,6 @@ with tab2:
     st.header("Input Log")
     st.write("Log your thoughts, observations, or any text input here.")
 
-    with st.form("input_log_form"):
-        new_log_content = st.text_area("Enter your log:", height=100)
-        submit_log = st.form_submit_button("Add to Log")
-
-        if submit_log and new_log_content:
-            # This needs to call a function in utils.py
-            # that involved LLM processing (categorization, scoring)
-            # This will be replaced by a call to a util function later.
-            processed_entry = process_text_input_for_log(new_log_content, st.session_state)
-            st.session_state.input_log.append(processed_entry)
-            st.success(f"Log added: '{processed_entry.get('content_preview', 'Entry')}'")
-            # No rerun needed here, form submission handles it.
-
     st.subheader("Logged Inputs")
     if not st.session_state.input_log:
         st.info("No inputs logged yet.")
@@ -175,6 +162,19 @@ with tab2:
             })
         df_logs = pd.DataFrame(log_data_for_df)
         st.dataframe(df_logs, use_container_width=True)
+
+    with st.form("input_log_form"):
+        new_log_content = st.text_area("Enter your log:", height=100)
+        submit_log = st.form_submit_button("Add to Log")
+
+        if submit_log and new_log_content:
+            # This needs to call a function in utils.py
+            # that involved LLM processing (categorization, scoring)
+            # This will be replaced by a call to a util function later.
+            processed_entry = process_text_input_for_log(new_log_content, st.session_state)
+            st.session_state.input_log.append(processed_entry)
+            st.success(f"Log added: '{processed_entry.get('content_preview', 'Entry')}'")
+            # No rerun needed here, form submission handles it.
 
 with tab3:
     st.header("Background Info")
