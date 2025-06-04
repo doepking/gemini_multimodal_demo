@@ -39,7 +39,6 @@ st.write(
 tab1, tab2, tab3 = st.tabs(["Chat", "Input Log", "Background Info"])
 
 with tab1:
-    st.header("Chat with Gemini")
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -143,9 +142,6 @@ with tab1:
         st.rerun()
 
 with tab2:
-    st.header("Input Log")
-    st.write("Log your thoughts, observations, or any text input here.")
-
     st.subheader("Logged Inputs")
     if not st.session_state.input_log:
         st.info("No inputs logged yet.")
@@ -172,9 +168,6 @@ with tab2:
             st.success(f"Log added: '{processed_entry.get('content_preview', 'Entry')}'")
 
 with tab3:
-    st.header("Background Info")
-    st.write("Provide background information about yourself to personalize the AI's responses.")
-
     # Display current background info (simple display for now)
     st.subheader("Current Background Information")
     if not st.session_state.background_info:
