@@ -10,7 +10,7 @@ from utils import get_chat_response, start_new_chat, process_text_input_for_log,
 st.set_page_config(
     page_title="Gemini Multimodal Demo",
     page_icon=":speech_balloon:",
-    layout="wide"
+    layout="centered"
 )
 
 # --- Initialize Session State ---
