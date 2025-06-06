@@ -281,9 +281,6 @@ with tab4:
     def toggle_edit_mode():
         st.session_state.edit_background = not st.session_state.edit_background
 
-    if not st.session_state.background_info:
-        st.info("No background information provided yet. The LLM can add info via chat.")
-
     if st.session_state.edit_background:
         with st.form("edit_background_form"):
             background_text = st.text_area(
@@ -309,8 +306,10 @@ with tab4:
             toggle_edit_mode()
             st.rerun()
     else:
-        st.json(st.session_state.background_info, expanded=True)
-        if st.session_state.background_info: # Only show edit button if there is info
+        if not st.session_state.background_info:
+            st.info("No background information provided yet. The LLM can add info via chat.")
+        else:
+            st.json(st.session_state.background_info, expanded=True)
             if st.button("Edit Background Info"):
                 toggle_edit_mode()
                 st.rerun()
