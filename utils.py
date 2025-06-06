@@ -87,6 +87,10 @@ manage_tasks_func = types.Tool(
                         "type": "STRING",
                         "description": "The new status of the task to update.",
                         "enum": ["open", "in_progress", "completed"]
+                    },
+                    "deadline": {
+                        "type": "STRING",
+                        "description": "The deadline for the task in ISO format (e.g., YYYY-MM-DDTHH:MM:SSZ)."
                     }
                 },
                 "required": ["action"],
@@ -210,7 +214,7 @@ def save_background_info(data):
 
 # --- Core Implementation Functions (to be called by LLM-triggered functions) ---
 
-def manage_tasks_and_persist_impl(action: str, session_state, task_description: str = None, task_id: int = None, task_status: str = None):
+def manage_tasks_and_persist_impl(action: str, session_state, task_description: str = None, task_id: int = None, task_status: str = None, deadline: str = None):
     """
     Core logic to manage tasks in st.session_state.tasks and save changes to CSV.
     """
@@ -220,11 +224,33 @@ def manage_tasks_and_persist_impl(action: str, session_state, task_description: 
     if action == "add":
         if not task_description:
             return {"status": "error", "message": "Task description is required to add a task."}
+        
+        task_deadline = None
+        if deadline:
+            try:
+                # Try parsing as a full ISO datetime first
+                dt.datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+                task_deadline = deadline
+            except ValueError:
+                # If that fails, it might be a date-only string (e.g., from a date picker)
+                try:
+                    d = dt.datetime.strptime(deadline, "%Y-%m-%d").date()
+                    # Combine the date with the current time to fulfill the "time now" aspect
+                    now_time = dt.datetime.now(dt.timezone.utc).time()
+                    task_deadline_dt = dt.datetime.combine(d, now_time, tzinfo=dt.timezone.utc)
+                    task_deadline = task_deadline_dt.isoformat()
+                except ValueError:
+                    return {"status": "error", "message": "Invalid deadline format. Please use ISO format or YYYY-MM-DD."}
+        else:
+            # Default to 7 days in the future from the current time
+            task_deadline = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=7)).isoformat()
+
         new_task = {
             "id": len(session_state.tasks) + 1,
             "description": task_description,
             "status": "open",
-            "created_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "deadline": task_deadline,
+            "created_at": dt.datetime.now(dt.timezone.utc).isoformat()
         }
         session_state.tasks.append(new_task)
         save_tasks(session_state.tasks)
@@ -328,9 +354,9 @@ def update_background_info_and_persist(background_update_json: str, session_stat
     """App-facing function to update background info and persist it."""
     return update_background_info_and_persist_impl(background_update_json, session_state)
 
-def add_task_and_persist(task_description: str, session_state):
+def add_task_and_persist(task_description: str, session_state, deadline: str = None):
     """App-facing function to add a new task and persist it."""
-    return manage_tasks_and_persist_impl(action="add", session_state=session_state, task_description=task_description)
+    return manage_tasks_and_persist_impl(action="add", session_state=session_state, task_description=task_description, deadline=deadline)
 
 def update_tasks_and_persist(tasks_list: list, session_state):
     """App-facing function to update the entire task list and persist it."""
@@ -523,7 +549,8 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
                 session_state=session_state,
                 task_description=function_args.get("task_description"),
                 task_id=function_args.get("task_id"),
-                task_status=function_args.get("task_status")
+                task_status=function_args.get("task_status"),
+                deadline=function_args.get("deadline")
             )
             function_response_content = result
             if result.get("status") == "success":

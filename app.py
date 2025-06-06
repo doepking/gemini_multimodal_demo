@@ -215,8 +215,8 @@ with tab3:
         # Convert list of dicts to DataFrame for editing
         df_tasks = pd.DataFrame(st.session_state.tasks)
         # Ensure columns are in a consistent order
-        df_tasks = df_tasks[["id", "description", "status", "created_at"]]
-        df_tasks.rename(columns={"id": "ID", "description": "Description", "status": "Status", "created_at": "Created At"}, inplace=True)
+        df_tasks = df_tasks[["id", "description", "status", "deadline", "created_at"]]
+        df_tasks.rename(columns={"id": "ID", "description": "Description", "status": "Status", "deadline": "Deadline", "created_at": "Created At"}, inplace=True)
 
         edited_tasks_df = st.data_editor(
             df_tasks,
@@ -227,6 +227,11 @@ with tab3:
             column_config={
                 "ID": st.column_config.Column("ID", disabled=True),
                 "Created At": st.column_config.Column("Created At", disabled=True),
+                "Deadline": st.column_config.DateColumn(
+                    "Deadline",
+                    format="YYYY-MM-DD",
+                    required=True,
+                ),
                 "Status": st.column_config.SelectboxColumn(
                     "Status",
                     options=['open', 'in_progress', 'completed'],
@@ -236,7 +241,7 @@ with tab3:
         )
 
         if st.button("Save Task Changes"):
-            updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Created At": "created_at"}).to_dict('records')
+            updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Deadline": "deadline", "Created At": "created_at"}).to_dict('records')
             result = update_tasks_and_persist(updated_tasks, st.session_state)
             st.success(result.get("message", "Task changes saved!"))
             st.rerun()
@@ -245,10 +250,12 @@ with tab3:
     with st.form("new_task_form"):
         st.subheader("Add a New Task")
         new_task_description = st.text_input("Task Description")
+        new_task_deadline = st.date_input("Deadline", value=dt.date.today() + dt.timedelta(days=7))
         submit_new_task = st.form_submit_button("Add Task")
 
         if submit_new_task and new_task_description:
-            result = add_task_and_persist(new_task_description, st.session_state)
+            deadline_str = new_task_deadline.isoformat()
+            result = add_task_and_persist(new_task_description, st.session_state, deadline=deadline_str)
             st.success(result.get("message", f"Task '{new_task_description}' added!"))
             st.rerun()
 
