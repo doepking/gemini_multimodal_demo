@@ -57,10 +57,11 @@ if 'edit_background' not in st.session_state:
     st.session_state.edit_background = False
 
 # --- Main App Content ---
-st.title("Multimodal AI Chat with Gemini")
+st.title("AI-Powered Life Tracker with Gemini")
 st.write(
-    "This demo showcases audio and text chat with Google's Gemini model, "
-    "along with input logging and background information management using session state."
+    "This is an AI-powered assistant to help you track your thoughts, tasks, and background information. "
+    "Interact with the Gemini model via text or audio, and manage your data across the different tabs. "
+    "All data is editable and is persisted locally."
 )
 
 tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info"])
