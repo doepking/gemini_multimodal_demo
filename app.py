@@ -2,6 +2,7 @@ import os
 import tempfile
 import streamlit as st
 from audiorecorder import audiorecorder
+import datetime as dt
 import pandas as pd
 
 from utils import get_chat_response, start_new_chat, process_text_input_for_log, update_background_info_in_session
@@ -28,6 +29,8 @@ if 'input_log' not in st.session_state:
     st.session_state.input_log = [] # List of dictionaries
 if 'background_info' not in st.session_state:
     st.session_state.background_info = {} # Dictionary
+if 'tasks' not in st.session_state:
+    st.session_state.tasks = [] # List of task dictionaries
 
 # --- Main App Content ---
 st.title("Multimodal AI Chat with Gemini")
@@ -36,7 +39,7 @@ st.write(
     "along with input logging and background information management using session state."
 )
 
-tab1, tab2, tab3 = st.tabs(["Chat", "Input Log", "Background Info"])
+tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info"])
 
 with tab1:
     # Display chat messages
@@ -168,6 +171,65 @@ with tab2:
             st.success(f"Log added: '{processed_entry.get('content_preview', 'Entry')}'")
 
 with tab3:
+    st.header("Task Management")
+    st.write("Manage your tasks directly here.")
+
+    if not st.session_state.tasks:
+        st.info("No tasks yet. Add one below or ask the chat assistant to add one for you!")
+        df_tasks = pd.DataFrame(columns=["ID", "Description", "Status", "Created At"])
+    else:
+        # Convert list of dicts to DataFrame for editing
+        df_tasks = pd.DataFrame(st.session_state.tasks)
+        # Ensure columns are in a consistent order
+        df_tasks = df_tasks[["id", "description", "status", "created_at"]]
+        df_tasks.rename(columns={"id": "ID", "description": "Description", "status": "Status", "created_at": "Created At"}, inplace=True)
+
+
+    edited_tasks_df = st.data_editor(
+        df_tasks,
+        num_rows="dynamic",
+        hide_index=True,
+        use_container_width=True,
+        key="data_editor_tasks",
+        column_config={
+            "ID": st.column_config.Column("ID", disabled=True),
+            "Created At": st.column_config.Column("Created At", disabled=True),
+            "Status": st.column_config.SelectboxColumn(
+                "Status",
+                options=['open', 'in_progress', 'completed'],
+                required=True
+            ),
+        },
+    )
+
+    if st.button("Save Task Changes"):
+        # Logic to update session state from the edited dataframe
+        updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Created At": "created_at"}).to_dict('records')
+        
+        # A simple overwrite is easiest for session state. For a DB, you'd do updates/deletes.
+        st.session_state.tasks = updated_tasks
+        st.success("Task changes saved to session!")
+        st.rerun()
+
+
+    with st.form("new_task_form"):
+        st.subheader("Add a New Task")
+        new_task_description = st.text_input("Task Description")
+        submit_new_task = st.form_submit_button("Add Task")
+
+        if submit_new_task and new_task_description:
+            new_task = {
+                "id": len(st.session_state.tasks) + 1,
+                "description": new_task_description,
+                "status": "open",
+                "created_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            st.session_state.tasks.append(new_task)
+            st.success(f"Task '{new_task_description}' added!")
+            st.rerun()
+
+
+with tab4:
     # Display current background info (simple display for now)
     st.subheader("Current Background Information")
     if not st.session_state.background_info:

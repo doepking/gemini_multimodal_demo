@@ -58,6 +58,42 @@ BACKGROUND_INFO_SCHEMA_EXAMPLE = """
 }
 """
 
+manage_tasks_func = types.Tool(
+    function_declarations=[
+        {
+            "name": "manage_tasks_in_session",
+            "description": (
+                "Manages tasks in the session state. Use this to add, update, or list tasks based on user input. "
+                "The 'action' parameter determines the operation: 'add', 'update', 'list'."
+            ),
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "action": {
+                        "type": "STRING",
+                        "description": "The action to perform on the tasks.",
+                        "enum": ["add", "update", "list"]
+                    },
+                    "task_description": {
+                        "type": "STRING",
+                        "description": "The description of the task to add or update."
+                    },
+                    "task_id": {
+                        "type": "INTEGER",
+                        "description": "The ID of the task to update."
+                    },
+                    "task_status": {
+                        "type": "STRING",
+                        "description": "The new status of the task to update.",
+                        "enum": ["open", "in_progress", "completed"]
+                    }
+                },
+                "required": ["action"],
+            },
+        }
+    ]
+)
+
 # --- Function Declarations for LLM ---
 add_log_entry_func = types.Tool(
     function_declarations=[
@@ -115,10 +151,51 @@ chat_tools = types.Tool(
     function_declarations=[
         add_log_entry_func.function_declarations[0],
         update_background_info_func.function_declarations[0],
+        manage_tasks_func.function_declarations[0],
     ]
 )
 
 # --- Core Implementation Functions (to be called by LLM-triggered functions) ---
+
+def manage_tasks_in_session_impl(action: str, session_state, task_description: str = None, task_id: int = None, task_status: str = None):
+    """
+    Manages tasks in st.session_state.tasks.
+    """
+    if 'tasks' not in session_state:
+        session_state.tasks = []
+
+    if action == "add":
+        if not task_description:
+            return {"status": "error", "message": "Task description is required to add a task."}
+        new_task = {
+            "id": len(session_state.tasks) + 1,
+            "description": task_description,
+            "status": "open",
+            "created_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        session_state.tasks.append(new_task)
+        logger.info(f"Task added: {new_task}")
+        return {"status": "success", "message": f"Task added: '{task_description}'", "task": new_task}
+
+    elif action == "update":
+        if task_id is None or task_status is None:
+            return {"status": "error", "message": "Task ID and status are required to update a task."}
+        task_found = False
+        for task in session_state.tasks:
+            if task["id"] == task_id:
+                task["status"] = task_status
+                task_found = True
+                logger.info(f"Task {task_id} updated to {task_status}")
+                return {"status": "success", "message": f"Task {task_id} updated to {task_status}", "task": task}
+        if not task_found:
+            return {"status": "error", "message": f"Task with ID {task_id} not found."}
+
+    elif action == "list":
+        return {"status": "success", "tasks": session_state.tasks}
+
+    else:
+        return {"status": "error", "message": f"Unknown task action: {action}"}
+
 
 def process_text_input_for_log_impl(text_input: str, category_suggestion: str = None, session_state=None):
     """
@@ -210,6 +287,8 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     current_bg_info_str = json.dumps(session_state.get('background_info', {}), indent=2)
     recent_logs_preview = [log.get('content_preview', 'Log entry') for log in session_state.get('input_log', [])[-5:]] # Last 5 logs
     recent_logs_str = "\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
+    tasks_preview = [f"ID: {task['id']}, Desc: {task['description']}, Status: {task['status']}" for task in session_state.get('tasks', [])]
+    tasks_str = "\n- ".join(tasks_preview) if tasks_preview else "No tasks."
 
     system_prompt = f"""
     You are a helpful AI assistant. Your user is interacting with you through a multimodal chat interface.
@@ -230,6 +309,10 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     - {recent_logs_str}
     (Use the `process_text_input_for_log` function if the user makes a statement that should be logged.)
 
+    CURRENT TASKS (stored in session):
+    - {tasks_str}
+    (Use the `manage_tasks_in_session` function to add, update, or list tasks.)
+
     FUNCTION CALLING RULES:
     1.  If the user provides a general statement, observation, thought, or event they want to record,
         call `process_text_input_for_log` with their `text_input`. You can also suggest a `category_suggestion`.
@@ -240,9 +323,13 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         The JSON string you provide for `background_update_json` must be valid. If string values within your generated JSON contain special characters (like quotes, backslashes, newlines), ensure they are properly escaped (e.g., \" for quotes, \\\\ for backslashes, \\n for newlines).
         Example: User says "My main goal now is to exercise more, and I live in Berlin." -> Call `update_background_info_in_session` with background_update_json='{{"goals": ["Exercise more"], "user_profile": {{"location": {{"city": "Berlin"}}}}}}'.
         Example with escaping: User says "My note is about \"quotes\" and backslashes \\." -> Call `update_background_info_in_session` with background_update_json='{{"user_provided_info": "My note is about \\\"quotes\\\" and backslashes \\\\."}}'.
-    3.  You can call multiple functions if appropriate. For example, if a user says "I learned that my value is 'kindness' and I want to log that I had a good day", you could call both functions.
-    4.  After a function call, I will provide you with the result. You should then formulate a natural language response to the user based on that result and the conversation context.
-    5.  If no function call is needed, respond directly to the user's query or statement.
+    3.  If the user wants to add, update, or see their tasks, call `manage_tasks_in_session`.
+        - To add: `action='add'`, `task_description='...'`
+        - To update: `action='update'`, `task_id=...`, `task_status='...'`
+        - To list: `action='list'`
+    4.  You can call multiple functions if appropriate. For example, if a user says "I learned that my value is 'kindness' and I want to log that I had a good day", you could call both functions.
+    5.  After a function call, I will provide you with the result. You should then formulate a natural language response to the user based on that result and the conversation context.
+    6.  If no function call is needed, respond directly to the user's query or statement.
     """
 
     contents = [] # Initialize contents as an empty list
@@ -362,6 +449,20 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             function_response_content = result
             if result.get("status") == "success":
                 ui_update_message = result.get("message") # This is for the UI toast/message
+        elif function_name == "manage_tasks_in_session":
+            result = manage_tasks_in_session_impl(
+                action=function_args.get("action"),
+                session_state=session_state,
+                task_description=function_args.get("task_description"),
+                task_id=function_args.get("task_id"),
+                task_status=function_args.get("task_status")
+            )
+            function_response_content = result
+            if result.get("status") == "success":
+                if result.get("tasks"):
+                     ui_update_message = f"Current tasks: {json.dumps(result.get('tasks'))}"
+                else:
+                    ui_update_message = result.get("message")
         else:
             logger.warning(f"LLM called unknown function: {function_name}")
             function_response_content = {"status": "error", "message": f"Unknown function: {function_name}"}
