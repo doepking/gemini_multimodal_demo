@@ -157,9 +157,9 @@ chat_tools = types.Tool(
 )
 
 # --- File Paths for Persistence ---
-INPUT_LOG_FILE = "input_logs.csv"
-BACKGROUND_INFO_FILE = "background_information.json"
-TASKS_FILE = "tasks.csv"
+INPUT_LOG_FILE = "data/input_logs.csv"
+BACKGROUND_INFO_FILE = "data/background_information.json"
+TASKS_FILE = "data/tasks.csv"
 
 # --- Data Persistence Functions ---
 def _save_csv(df, file_path):
