@@ -62,7 +62,7 @@ BACKGROUND_INFO_SCHEMA_EXAMPLE = """
 manage_tasks_func = types.Tool(
     function_declarations=[
         {
-            "name": "manage_tasks_in_session",
+            "name": "manage_tasks",
             "description": (
                 "Manages tasks in the session state. Use this to add, update, or list tasks based on user input. "
                 "The 'action' parameter determines the operation: 'add', 'update', 'list'."
@@ -99,7 +99,7 @@ manage_tasks_func = types.Tool(
 add_log_entry_func = types.Tool(
     function_declarations=[
         {
-            "name": "process_text_input_for_log",
+            "name": "add_log_entry",
             "description": (
                 "Processes a user's text input, categorizes it (optional, basic for now), "
                 "and adds it to a session-based log. Use this when the user provides a general statement, "
@@ -126,7 +126,7 @@ add_log_entry_func = types.Tool(
 update_background_info_func = types.Tool(
     function_declarations=[
         {
-            "name": "update_background_info_in_session",
+            "name": "update_background_info",
             "description": (
                 "Updates the user's background information stored in the session state. "
                 "Use this when the user explicitly provides or modifies their personal details, goals, values, or preferences. "
@@ -206,9 +206,9 @@ def save_background_info(data):
 
 # --- Core Implementation Functions (to be called by LLM-triggered functions) ---
 
-def manage_tasks_in_session_impl(action: str, session_state, task_description: str = None, task_id: int = None, task_status: str = None):
+def manage_tasks_and_persist_impl(action: str, session_state, task_description: str = None, task_id: int = None, task_status: str = None):
     """
-    Manages tasks in st.session_state.tasks and saves changes to CSV.
+    Core logic to manage tasks in st.session_state.tasks and save changes to CSV.
     """
     if 'tasks' not in session_state:
         session_state.tasks = []
@@ -247,12 +247,12 @@ def manage_tasks_in_session_impl(action: str, session_state, task_description: s
     else:
         return {"status": "error", "message": f"Unknown task action: {action}"}
 
-def process_text_input_for_log_impl(text_input: str, category_suggestion: str = None, session_state=None):
+def add_log_entry_and_persist_impl(text_input: str, category_suggestion: str = None, session_state=None):
     """
-    Processes and logs text input to st.session_state.input_log and saves to CSV.
+    Core logic to process and log text input to st.session_state.input_log and save to CSV.
     """
     if session_state is None:
-        logger.error("Session state not provided to process_text_input_for_log_impl")
+        logger.error("Session state not provided to add_log_entry_and_persist_impl")
         return {"status": "error", "message": "Session state missing."}
 
     timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -270,12 +270,12 @@ def process_text_input_for_log_impl(text_input: str, category_suggestion: str = 
     logger.info(f"Input logged: {log_entry['content_preview']}")
     return {"status": "success", "message": f"Log added: '{log_entry['content_preview']}'", "entry": log_entry}
 
-def update_background_info_in_session_impl(background_update_json: str, session_state=None):
+def update_background_info_and_persist_impl(background_update_json: str, session_state=None):
     """
-    Updates background information in st.session_state.background_info and saves to CSV.
+    Core logic to update background information in st.session_state.background_info and save to CSV.
     """
     if session_state is None:
-        logger.error("Session state not provided to update_background_info_in_session_impl")
+        logger.error("Session state not provided to update_background_info_and_persist_impl")
         return {"status": "error", "message": "Session state missing."}
 
     if 'background_info' not in session_state:
@@ -313,20 +313,32 @@ def update_background_info_in_session_impl(background_update_json: str, session_
     return {"status": "success", "message": message, "updated_info": session_state.background_info}
 
 
-# --- Placeholder functions (imported by app.py) ---
-# These will be called by the Streamlit app and will then call the _impl versions.
-# This structure allows for future expansion if needed (e.g., async calls, more complex logic).
+# --- App-Facing Functions ---
+# These are called directly by the Streamlit UI. They handle persistence.
 
-def process_text_input_for_log(text_input: str, session_state, category_suggestion: str = None):
-    """App-facing function to log text input."""
-    # For now, directly calls the implementation.
-    # In a more complex app, this might involve more steps or async handling.
-    return process_text_input_for_log_impl(text_input, category_suggestion, session_state)
+def add_log_entry_and_persist(text_input: str, session_state, category_suggestion: str = None):
+    """App-facing function to add a log entry and persist it."""
+    return add_log_entry_and_persist_impl(text_input, category_suggestion, session_state)
 
-def update_background_info_in_session(background_update_json: str, session_state): # Changed parameter name
-    """App-facing function to update background info."""
-    # For now, directly calls the implementation.
-    return update_background_info_in_session_impl(background_update_json, session_state) # Changed parameter name
+def update_background_info_and_persist(background_update_json: str, session_state):
+    """App-facing function to update background info and persist it."""
+    return update_background_info_and_persist_impl(background_update_json, session_state)
+
+def add_task_and_persist(task_description: str, session_state):
+    """App-facing function to add a new task and persist it."""
+    return manage_tasks_and_persist_impl(action="add", session_state=session_state, task_description=task_description)
+
+def update_tasks_and_persist(tasks_list: list, session_state):
+    """App-facing function to update the entire task list and persist it."""
+    session_state.tasks = tasks_list
+    save_tasks(session_state.tasks)
+    return {"status": "success", "message": "Tasks updated successfully."}
+
+def update_input_log_and_persist(log_list: list, session_state):
+    """App-facing function to update the entire input log and persist it."""
+    session_state.input_log = log_list
+    save_input_log(session_state.input_log)
+    return {"status": "success", "message": "Input log updated successfully."}
 
 
 # --- Chat Functions ---
@@ -350,7 +362,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     ```json
     {current_bg_info_str}
     ```
-    (Use the `update_background_info_in_session` function if the user provides personal details, goals, values, or preferences.
+    (Use the `update_background_info` function if the user provides personal details, goals, values, or preferences.
     When calling this function, provide a `background_update_json` argument which is a JSON string containing the extracted information to be updated, structured according to the schema below.)
     Schema for background info (as a loose guideline, when the user provides updates):
     ```json
@@ -359,23 +371,23 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
 
     RECENT USER LOGS (last 5, stored in session):
     - {recent_logs_str}
-    (Use the `process_text_input_for_log` function if the user makes a statement that should be logged.)
+    (Use the `add_log_entry` function if the user makes a statement that should be logged.)
 
     CURRENT TASKS (stored in session):
     - {tasks_str}
-    (Use the `manage_tasks_in_session` function to add, update, or list tasks.)
+    (Use the `manage_tasks` function to add, update, or list tasks.)
 
     FUNCTION CALLING RULES:
     1.  If the user provides a general statement, observation, thought, or event they want to record,
-        call `process_text_input_for_log` with their `text_input`. You can also suggest a `category_suggestion`.
-        Example: User says "The weather is nice today." -> Call `process_text_input_for_log` with text_input="The weather is nice today.", category_suggestion="Observation".
+        call `add_log_entry` with their `text_input`. You can also suggest a `category_suggestion`.
+        Example: User says "The weather is nice today." -> Call `add_log_entry` with text_input="The weather is nice today.", category_suggestion="Observation".
     2.  If the user explicitly provides or modifies their personal details, goals, values, or preferences,
         interpret their free-form text, extract the relevant information, structure it as a JSON string according to the schema,
-        and call `update_background_info_in_session` with the `background_update_json` argument containing this JSON string.
+        and call `update_background_info` with the `background_update_json` argument containing this JSON string.
         The JSON string you provide for `background_update_json` must be valid. If string values within your generated JSON contain special characters (like quotes, backslashes, newlines), ensure they are properly escaped (e.g., \" for quotes, \\\\ for backslashes, \\n for newlines).
-        Example: User says "My main goal now is to exercise more, and I live in Berlin." -> Call `update_background_info_in_session` with background_update_json='{{"goals": ["Exercise more"], "user_profile": {{"location": {{"city": "Berlin"}}}}}}'.
-        Example with escaping: User says "My note is about \"quotes\" and backslashes \\." -> Call `update_background_info_in_session` with background_update_json='{{"user_provided_info": "My note is about \\\"quotes\\\" and backslashes \\\\."}}'.
-    3.  If the user wants to add, update, or see their tasks, call `manage_tasks_in_session`.
+        Example: User says "My main goal now is to exercise more, and I live in Berlin." -> Call `update_background_info` with background_update_json='{{"goals": ["Exercise more"], "user_profile": {{"location": {{"city": "Berlin"}}}}}}'.
+        Example with escaping: User says "My note is about \"quotes\" and backslashes \\." -> Call `update_background_info` with background_update_json='{{"user_provided_info": "My note is about \\\"quotes\\\" and backslashes \\\\."}}'.
+    3.  If the user wants to add, update, or see their tasks, call `manage_tasks`.
         - To add: `action='add'`, `task_description='...'`
         - To update: `action='update'`, `task_id=...`, `task_status='...'`
         - To list: `action='list'`
@@ -483,8 +495,8 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         conversation_history.append({"role": "model", "content": model_turn_content_for_history})
 
         function_response_content = {}
-        if function_name == "process_text_input_for_log":
-            result = process_text_input_for_log_impl(
+        if function_name == "add_log_entry":
+            result = add_log_entry_and_persist_impl(
                 text_input=function_args.get("text_input"),
                 category_suggestion=function_args.get("category_suggestion"),
                 session_state=session_state
@@ -493,16 +505,16 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             if result.get("status") == "success":
                 ui_update_message = result.get("message") # This is for the UI toast/message
 
-        elif function_name == "update_background_info_in_session":
-            result = update_background_info_in_session_impl(
+        elif function_name == "update_background_info":
+            result = update_background_info_and_persist_impl(
                 background_update_json=function_args.get("background_update_json"), # Corrected param name
                 session_state=session_state
             )
             function_response_content = result
             if result.get("status") == "success":
                 ui_update_message = result.get("message") # This is for the UI toast/message
-        elif function_name == "manage_tasks_in_session":
-            result = manage_tasks_in_session_impl(
+        elif function_name == "manage_tasks":
+            result = manage_tasks_and_persist_impl(
                 action=function_args.get("action"),
                 session_state=session_state,
                 task_description=function_args.get("task_description"),

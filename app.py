@@ -1,5 +1,6 @@
 import os
 import tempfile
+import json
 import streamlit as st
 from audiorecorder import audiorecorder
 import datetime as dt
@@ -8,14 +9,14 @@ import pandas as pd
 from utils import (
     get_chat_response,
     start_new_chat,
-    process_text_input_for_log,
-    update_background_info_in_session,
+    add_log_entry_and_persist,
+    update_background_info_and_persist,
+    add_task_and_persist,
+    update_tasks_and_persist,
+    update_input_log_and_persist,
     load_input_log,
-    save_input_log,
     load_tasks,
-    save_tasks,
     load_background_info,
-    save_background_info,
 )
 
 # --- Page Configuration ---
@@ -170,27 +171,37 @@ with tab2:
     if not st.session_state.input_log:
         st.info("No inputs logged yet.")
     else:
-        # Display logs in a more structured way, e.g., using pandas DataFrame
-        log_data_for_df = []
-        for i, entry in enumerate(reversed(st.session_state.input_log)): # Show newest first
-            log_data_for_df.append({
-                "Timestamp": entry.get("timestamp", "N/A"),
-                "Content": entry.get("original_content", entry.get("content", "N/A")),
-                "Category": entry.get("category", "N/A"),
-                "Details": entry.get("details", "N/A")
-            })
-        df_logs = pd.DataFrame(log_data_for_df)
-        st.dataframe(df_logs, use_container_width=True)
+        # Use a data editor to allow for changes
+        edited_logs_df = st.data_editor(
+            pd.DataFrame(st.session_state.input_log),
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            key="data_editor_logs",
+            column_config={
+                "timestamp": st.column_config.Column("Timestamp", disabled=True),
+                "original_content": st.column_config.Column("Content"),
+                "category": st.column_config.Column("Category"),
+                "details": st.column_config.Column("Details"),
+                "content_preview": None, # Hide the preview column
+            },
+            # Reorder columns for better display
+            column_order=["timestamp", "original_content", "category", "details"]
+        )
+
+        if st.button("Save Log Changes"):
+            updated_logs = edited_logs_df.to_dict('records')
+            result = update_input_log_and_persist(updated_logs, st.session_state)
+            st.success(result.get("message", "Logs updated!"))
+            st.rerun()
 
     with st.form("input_log_form"):
         new_log_content = st.text_area("Enter your log:", height=100)
         submit_log = st.form_submit_button("Add to Log")
 
         if submit_log and new_log_content:
-            processed_entry = process_text_input_for_log(new_log_content, st.session_state)
-            st.session_state.input_log.append(processed_entry)
-            save_input_log(st.session_state.input_log)
-            st.success(f"Log added: '{processed_entry.get('content_preview', 'Entry')}'")
+            result = add_log_entry_and_persist(new_log_content, st.session_state)
+            st.success(result.get("message", "Log added successfully!"))
             st.rerun()
 
 with tab3:
@@ -223,12 +234,9 @@ with tab3:
     )
 
     if st.button("Save Task Changes"):
-        # Logic to update session state from the edited dataframe
         updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Created At": "created_at"}).to_dict('records')
-        
-        st.session_state.tasks = updated_tasks
-        save_tasks(st.session_state.tasks)
-        st.success("Task changes saved to session!")
+        result = update_tasks_and_persist(updated_tasks, st.session_state)
+        st.success(result.get("message", "Task changes saved!"))
         st.rerun()
 
 
@@ -238,15 +246,8 @@ with tab3:
         submit_new_task = st.form_submit_button("Add Task")
 
         if submit_new_task and new_task_description:
-            new_task = {
-                "id": len(st.session_state.tasks) + 1,
-                "description": new_task_description,
-                "status": "open",
-                "created_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            st.session_state.tasks.append(new_task)
-            save_tasks(st.session_state.tasks)
-            st.success(f"Task '{new_task_description}' added!")
+            result = add_task_and_persist(new_task_description, st.session_state)
+            st.success(result.get("message", f"Task '{new_task_description}' added!"))
             st.rerun()
 
 
@@ -255,22 +256,21 @@ with tab4:
     st.subheader("Current Background Information")
     if not st.session_state.background_info:
         st.info("No background information provided yet.")
-    else:
-        # For complex dicts, st.json might be better, or iterate and display
-        st.json(st.session_state.background_info, expanded=False)
+    # Use st.text_area to edit the JSON directly
+    background_text = st.text_area(
+        "Background Information (JSON format):",
+        value=json.dumps(st.session_state.background_info, indent=2),
+        height=300,
+        key="background_info_editor"
+    )
 
-    with st.form("background_info_form"):
-        st.write("Enter or update your background information (e.g., goals, values, preferences). Use key-value pairs if desired, or free text.")
-        # Using a text area for simplicity; could be structured fields or st.data_editor
-        background_text = st.text_area(
-            "Your background information:",
-            value=st.session_state.background_info.get("user_provided_info", ""), # Pre-fill if exists
-            height=150
-        )
-        submit_background = st.form_submit_button("Save Background Info")
-
-        if submit_background and background_text:
-            update_background_info_in_session(background_text, st.session_state)
-            save_background_info(st.session_state.background_info)
-            st.success("Background information updated!")
+    if st.button("Save Background Info Changes"):
+        try:
+            # The function expects a JSON string, so this works perfectly
+            result = update_background_info_and_persist(background_text, st.session_state)
+            st.success(result.get("message", "Background information updated!"))
             st.rerun()
+        except json.JSONDecodeError:
+            st.error("Invalid JSON format. Please correct it and try again.")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
