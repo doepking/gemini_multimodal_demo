@@ -53,6 +53,8 @@ if 'background_info' not in st.session_state:
     st.session_state.background_info = load_background_info()
 if 'tasks' not in st.session_state:
     st.session_state.tasks = load_tasks()
+if 'edit_background' not in st.session_state:
+    st.session_state.edit_background = False
 
 # --- Main App Content ---
 st.title("Multimodal AI Chat with Gemini")
@@ -205,9 +207,9 @@ with tab2:
             st.rerun()
 
 with tab3:
+    st.subheader("Manage Tasks")
     if not st.session_state.tasks:
         st.info("No tasks yet. Add one below or ask the chat assistant to add one for you!")
-        df_tasks = pd.DataFrame(columns=["ID", "Description", "Status", "Created At"])
     else:
         # Convert list of dicts to DataFrame for editing
         df_tasks = pd.DataFrame(st.session_state.tasks)
@@ -215,29 +217,28 @@ with tab3:
         df_tasks = df_tasks[["id", "description", "status", "created_at"]]
         df_tasks.rename(columns={"id": "ID", "description": "Description", "status": "Status", "created_at": "Created At"}, inplace=True)
 
+        edited_tasks_df = st.data_editor(
+            df_tasks,
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            key="data_editor_tasks",
+            column_config={
+                "ID": st.column_config.Column("ID", disabled=True),
+                "Created At": st.column_config.Column("Created At", disabled=True),
+                "Status": st.column_config.SelectboxColumn(
+                    "Status",
+                    options=['open', 'in_progress', 'completed'],
+                    required=True
+                ),
+            },
+        )
 
-    edited_tasks_df = st.data_editor(
-        df_tasks,
-        num_rows="dynamic",
-        hide_index=True,
-        use_container_width=True,
-        key="data_editor_tasks",
-        column_config={
-            "ID": st.column_config.Column("ID", disabled=True),
-            "Created At": st.column_config.Column("Created At", disabled=True),
-            "Status": st.column_config.SelectboxColumn(
-                "Status",
-                options=['open', 'in_progress', 'completed'],
-                required=True
-            ),
-        },
-    )
-
-    if st.button("Save Task Changes"):
-        updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Created At": "created_at"}).to_dict('records')
-        result = update_tasks_and_persist(updated_tasks, st.session_state)
-        st.success(result.get("message", "Task changes saved!"))
-        st.rerun()
+        if st.button("Save Task Changes"):
+            updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Created At": "created_at"}).to_dict('records')
+            result = update_tasks_and_persist(updated_tasks, st.session_state)
+            st.success(result.get("message", "Task changes saved!"))
+            st.rerun()
 
 
     with st.form("new_task_form"):
@@ -252,25 +253,41 @@ with tab3:
 
 
 with tab4:
-    # Display current background info (simple display for now)
     st.subheader("Current Background Information")
-    if not st.session_state.background_info:
-        st.info("No background information provided yet.")
-    # Use st.text_area to edit the JSON directly
-    background_text = st.text_area(
-        "Background Information (JSON format):",
-        value=json.dumps(st.session_state.background_info, indent=2),
-        height=300,
-        key="background_info_editor"
-    )
 
-    if st.button("Save Background Info Changes"):
-        try:
-            # The function expects a JSON string, so this works perfectly
-            result = update_background_info_and_persist(background_text, st.session_state)
-            st.success(result.get("message", "Background information updated!"))
+    def toggle_edit_mode():
+        st.session_state.edit_background = not st.session_state.edit_background
+
+    if not st.session_state.background_info:
+        st.info("No background information provided yet. The LLM can add info via chat.")
+
+    if st.session_state.edit_background:
+        with st.form("edit_background_form"):
+            background_text = st.text_area(
+                "Edit Background Information (JSON format):",
+                value=json.dumps(st.session_state.background_info, indent=2),
+                height=300,
+                key="background_info_editor"
+            )
+            submitted = st.form_submit_button("Save Changes")
+            if submitted:
+                try:
+                    # The function expects a JSON string, so this works perfectly
+                    result = update_background_info_and_persist(background_text, st.session_state)
+                    st.success(result.get("message", "Background information updated!"))
+                    toggle_edit_mode() # Exit edit mode on success
+                    st.rerun()
+                except json.JSONDecodeError:
+                    st.error("Invalid JSON format. Please correct it and try again.")
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
+        
+        if st.button("Cancel"):
+            toggle_edit_mode()
             st.rerun()
-        except json.JSONDecodeError:
-            st.error("Invalid JSON format. Please correct it and try again.")
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
+    else:
+        st.json(st.session_state.background_info, expanded=True)
+        if st.session_state.background_info: # Only show edit button if there is info
+            if st.button("Edit Background Info"):
+                toggle_edit_mode()
+                st.rerun()

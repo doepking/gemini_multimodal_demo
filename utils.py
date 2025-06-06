@@ -167,10 +167,14 @@ def _save_csv(df, file_path):
     df.to_csv(file_path, index=False)
 
 def _load_csv(file_path):
-    """Loads data from a CSV file."""
-    if os.path.exists(file_path):
-        df = pd.read_csv(file_path)
-        return df.to_dict('records')
+    """Loads data from a CSV file, handling empty files."""
+    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+        try:
+            df = pd.read_csv(file_path)
+            return df.to_dict('records')
+        except pd.errors.EmptyDataError:
+            logger.warning(f"CSV file is empty: {file_path}")
+            return []
     return []
 
 def _save_json(data, file_path):
