@@ -13,10 +13,13 @@ AI through both text and audio input. This version introduces **input logging** 
 -   **LLM Function Calling:** The Gemini model can now intelligently decide to call specific functions to:
     *   Log user input.
     *   Update user background information.
+    *   Manage tasks (add, update, list).
     This enables more dynamic and context-aware interactions.
+-   **Task Management:** A new "Tasks" tab allows users to view, add, and edit tasks. Tasks can also be managed via chat by asking the AI.
+-   **Data Persistence:** Input logs, background information, and tasks are now persisted to `.csv` and `.json` files in the `data/` directory, so they are not lost when the application restarts.
 -   **Conversation History:** The application maintains a history of the conversation, allowing the AI to provide contextually
 relevant responses.
--   **Streamlit Interface:** A user-friendly web interface built with Streamlit, now featuring tabs for Chat, Input Log, and Background Info for organized interaction.
+-   **Streamlit Interface:** A user-friendly web interface built with Streamlit, now featuring tabs for Chat, Input Log, Tasks, and Background Info for organized interaction.
 -   **Dockerized Deployment:** The application is containerized using Docker for simple deployment and portability.
 
 ## Prerequisites
@@ -99,21 +102,30 @@ The application interface is organized into three main tabs:
 -   **Input Log Tab:**
     -   Use the text area to enter any thoughts, observations, or information you want to log.
     -   Click "Add to Log". The LLM might be involved in categorizing this input.
-    -   View your logged entries in the table below the form.
+    -   View your logged entries in the table below the form. Logs are saved to `data/input_logs.csv`.
+
+-   **Tasks Tab:**
+    -   View all your tasks in an editable table.
+    -   Add new tasks using the form at the bottom.
+    -   Update task descriptions or statuses directly in the table and click "Save Task Changes".
+    -   Tasks can also be added or updated by asking the chat assistant (e.g., "add a task to buy milk").
+    -   Tasks are saved to `data/tasks.csv`.
 
 -   **Background Info Tab:**
     -   View your current background information.
     -   Use the text area to provide or update details about yourself, such as goals, values, preferences, or any other context you want the AI to remember.
-    -   Click "Save Background Info". The LLM will process this text to update the structured background information stored in the session.
+    -   Click "Save Background Info". The LLM will process this text to update the structured background information.
+    -   Background info is saved to `data/background_information.json`.
 
 ## Code Overview
 
--   **`app.py`:** Contains the Streamlit application logic, including UI elements for the chat, input log, and background info tabs. It manages audio recording, chat input handling, form submissions for logging and background updates, and displays information from the session state. It calls `get_chat_response` from `utils.py` to interact with the Gemini model.
--   **`utils.py`:** Handles the communication with the Gemini API.
+-   **`app.py`:** Contains the Streamlit application logic, including UI elements for the chat, input log, tasks, and background info tabs. It manages audio recording, chat input handling, and form submissions. On startup, it loads data from files into the session state, and it calls functions from `utils.py` to save data when it's updated. It calls `get_chat_response` from `utils.py` to interact with the Gemini model.
+-   **`utils.py`:** Handles the communication with the Gemini API and data persistence.
     -   `start_new_chat`: Initializes a new chat session.
-    -   `get_chat_response`: Gets a response from the model, supporting text, audio, and now **function calling**. It includes a system prompt that guides the LLM on when and how to use the defined tools.
-    -   **Tool Definitions:** Defines `process_text_input_for_log` and `update_background_info_in_session` as tools available to the LLM.
-    -   **Implementation Functions (`_impl`):** Contains `process_text_input_for_log_impl` and `update_background_info_in_session_impl` which are executed when the LLM calls the respective functions. These update `st.session_state.input_log` and `st.session_state.background_info`.
+    -   `get_chat_response`: Gets a response from the model, supporting text, audio, and **function calling**. It includes a system prompt that guides the LLM on when and how to use the defined tools for logging, background info, and task management.
+    -   **Tool Definitions:** Defines `process_text_input_for_log`, `update_background_info_in_session`, and `manage_tasks_in_session` as tools available to the LLM.
+    -   **Implementation Functions (`_impl`):** Contains the logic that is executed when the LLM calls a function. These functions update the Streamlit session state and call the data persistence functions.
+    -   **Data Persistence Functions:** Includes `load_input_log`, `save_input_log`, `load_tasks`, `save_tasks`, `load_background_info`, and `save_background_info` which handle reading from and writing to files in the `data/` directory.
     -   Manages safety settings and provides a schema example for background information.
 -   **`Dockerfile`:** Defines the Docker image for the application, including the necessary dependencies and commands to run the
 application.
@@ -139,7 +151,7 @@ application.
 -   Implement more sophisticated conversation management.
 -   Expand function calling capabilities with more tools.
 -   Allow for more structured editing of background information.
--   Persist logs and background information beyond the current session (e.g., to a database).
+-   Persist logs, tasks, and background information beyond the current session (e.g., to a database).
 
 ## Contributing
 
