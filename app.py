@@ -67,6 +67,7 @@ st.write(
 tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info"])
 
 with tab1:
+    st.subheader("Hey there 👋, what's on your mind?")
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -174,9 +175,12 @@ with tab2:
     if not st.session_state.input_log:
         st.info("No inputs logged yet.")
     else:
+        # Sort logs by timestamp descending
+        sorted_logs = sorted(st.session_state.input_log, key=lambda x: x.get('timestamp', ''), reverse=True)
+
         # Use a data editor to allow for changes
         edited_logs_df = st.data_editor(
-            pd.DataFrame(st.session_state.input_log),
+            pd.DataFrame(sorted_logs),
             num_rows="dynamic",
             hide_index=True,
             use_container_width=True,
@@ -212,8 +216,10 @@ with tab3:
     if not st.session_state.tasks:
         st.info("No tasks yet. Add one below or ask the chat assistant to add one for you!")
     else:
+        # Sort tasks by creation date descending
+        sorted_tasks = sorted(st.session_state.tasks, key=lambda x: x.get('created_at', ''), reverse=True)
         # Convert list of dicts to DataFrame for editing
-        df_tasks = pd.DataFrame(st.session_state.tasks)
+        df_tasks = pd.DataFrame(sorted_tasks)
         # Ensure columns are in a consistent order
         df_tasks = df_tasks[["id", "description", "status", "deadline", "created_at"]]
         df_tasks["deadline"] = pd.to_datetime(df_tasks["deadline"])

@@ -15,8 +15,7 @@ load_dotenv()
 
 # Gemini API initialization
 client = genai.Client(api_key=os.environ.get("LLM_API_KEY"))
-MODEL_NAME = "gemini-2.0-flash-exp"
-
+MODEL_NAME = "gemini-2.5-flash-preview-05-20"
 # Safety settings
 safety_settings = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
@@ -268,12 +267,16 @@ def manage_tasks_and_persist_impl(action: str, session_state, task_description: 
                 task_found = True
                 save_tasks(session_state.tasks)
                 logger.info(f"Task {task_id} updated to {task_status}")
-                return {"status": "success", "message": f"Task {task_id} updated to {task_status}", "task": task}
+                # More descriptive success message
+                success_message = f"Okay, I've updated Task {task['id']}: '{task['description']}' to '{task_status}'."
+                return {"status": "success", "message": success_message, "task": task}
         if not task_found:
             return {"status": "error", "message": f"Task with ID {task_id} not found."}
 
     elif action == "list":
-        return {"status": "success", "tasks": session_state.tasks}
+        # Filter for open and in_progress tasks
+        active_tasks = [task for task in session_state.tasks if task.get("status") in ["open", "in_progress"]]
+        return {"status": "success", "tasks": active_tasks}
 
     else:
         return {"status": "error", "message": f"Unknown task action: {action}"}
@@ -390,49 +393,71 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     current_weekday_str = now.strftime('%A')
 
     system_prompt = f"""
-    You are a helpful AI assistant. Your user is interacting with you through a multimodal chat interface.
-    You can process text and audio. You also have access to tools to log information and update user background.
+    Your role is to be a proactive and intelligent assistant, helping the user organize their thoughts, tasks, and personal information.
+    Listen carefully to the user's input to decide whether to respond directly, use one of your tools, or use multiple tools in combination.
 
     CURRENT TIME:
     - ISO Format: {current_time_str}
     - Weekday: {current_weekday_str}
 
-    CURRENT USER BACKGROUND INFO (stored in session):
-    ```json
-    {current_bg_info_str}
-    ```
-    (Use the `update_background_info` function if the user provides personal details, goals, values, or preferences.
-    When calling this function, provide a `background_update_json` argument which is a JSON string containing the extracted information to be updated, structured according to the schema below.)
     Schema for background info (as a loose guideline, when the user provides updates):
     ```json
     {BACKGROUND_INFO_SCHEMA_EXAMPLE}
     ```
 
+    CURRENT USER BACKGROUND INFO (stored in session):
+    ```json
+    {current_bg_info_str}
+    ```
+
     RECENT USER LOGS (last 5, stored in session):
     - {recent_logs_str}
-    (Use the `add_log_entry` function if the user makes a statement that should be logged.)
 
     CURRENT TASKS (stored in session):
     - {tasks_str}
-    (Use the `manage_tasks` function to add, update, or list tasks.)
 
-    FUNCTION CALLING RULES:
-    1.  If the user provides a general statement, observation, thought, or event they want to record,
-        call `add_log_entry` with their `text_input`. You can also suggest a `category_suggestion`.
-        Example: User says "The weather is nice today." -> Call `add_log_entry` with text_input="The weather is nice today.", category_suggestion="Observation".
-    2.  If the user explicitly provides or modifies their personal details, goals, values, or preferences,
-        interpret their free-form text, extract the relevant information, structure it as a JSON string according to the schema,
-        and call `update_background_info` with the `background_update_json` argument containing this JSON string.
-        The JSON string you provide for `background_update_json` must be valid. If string values within your generated JSON contain special characters (like quotes, backslashes, newlines), ensure they are properly escaped (e.g., \" for quotes, \\\\ for backslashes, \\n for newlines).
-        Example: User says "My main goal now is to exercise more, and I live in Berlin." -> Call `update_background_info` with background_update_json='{{"goals": ["Exercise more"], "user_profile": {{"location": {{"city": "Berlin"}}}}}}'.
-        Example with escaping: User says "My note is about \"quotes\" and backslashes \\." -> Call `update_background_info` with background_update_json='{{"user_provided_info": "My note is about \\\"quotes\\\" and backslashes \\\\."}}'.
-    3.  If the user wants to add, update, or see their tasks, call `manage_tasks`.
-        - To add: `action='add'`, `task_description='...'`. When adding a task, if the user mentions a deadline (e.g., "tomorrow", "next Friday at 3pm"), you MUST infer the date and time, convert it to a full ISO 8601 string (YYYY-MM-DDTHH:MM:SSZ), and pass it as the `deadline` argument. If no deadline is mentioned, do not pass the `deadline` argument.
-        - To update: `action='update'`, `task_id=...`, `task_status='...'`
-        - To list: `action='list'`
-    4.  You can call multiple functions if appropriate. For example, if a user says "I learned that my value is 'kindness' and I want to log that I had a good day", you could call both functions.
-    5.  After a function call, I will provide you with the result. You should then formulate a natural language response to the user based on that result and the conversation context.
-    6.  If no function call is needed, respond directly to the user's query or statement.
+    --- FUNCTION CALLING RULES ---
+
+    1.  **Call `add_log_entry` when:**
+        - The user provides any general statement, observation, thought, or event they want to record.
+        - If the input also contains information for other function calls (like creating a task or updating background info), call `add_log_entry` IN ADDITION to the other relevant functions.
+        - Example: "I'm planning to finish the report by Friday, and I'm feeling good about it." -> Call `add_log_entry` AND `manage_tasks`.
+        - Example: "I just finished the presentation slides. I also realized my core value is continuous learning." -> Call `add_log_entry`, `manage_tasks` (to update), AND `update_background_info`.
+        - Non-Example: "What are my tasks?" -> DO NOT call `add_log_entry`. Call `manage_tasks` with action='list' ONLY.
+        - Non-Example: "My name is Mike." -> DO NOT call `add_log_entry`. Call `update_background_info` ONLY.
+
+    2.  **Call `update_background_info` when:**
+        - The user provides personal information (e.g., name, age, location), or updates their goals, values, challenges, or habits.
+        - This function should be called even if the input is also being logged by `add_log_entry`.
+        - You must interpret the user's text and construct a valid, escaped JSON string for the `background_update_json` argument.
+        - Example: "My new goal is to learn Python." -> Call `update_background_info` with `background_update_json='{{"goals": ["Learn Python"]}}'`.
+        - Example: "I've been reflecting and realized my main value is 'impact'." -> Call `add_log_entry` AND `update_background_info` with `background_update_json='{{"values": ["impact"]}}'`.
+
+    3.  **Call `manage_tasks` when:**
+        - The user wants to add, update, or list tasks.
+        - **Add Task (`action='add'`):** Use for explicit requests ("add a task...") AND for statements of future intent ("I will...", "I need to...", "I plan to...").
+            - You MUST infer deadlines from text like "tomorrow", "by Friday at 5pm", or "on Dec 25th" and convert them to an ISO string for the `deadline` argument.
+            - Example (Intent): "I'm going to draft the project proposal this afternoon." -> Call `manage_tasks` with `action='add'`, `task_description='Draft the project proposal'`, and an inferred `deadline`.
+        - **Update Task (`action='update'`):** Use for explicit requests ("mark task 1 as done") AND for statements of progress or completion ("I finished the report", "I worked on the slides").
+            - You need to infer the `task_id` and the `task_status` ('completed' or 'in_progress').
+            - Example (Implicit Completion): "Just got back from my run." -> If a "Go for a run" task exists, call `manage_tasks` with `action='update'`, the correct `task_id`, and `task_status='completed'`.
+        - **List Tasks (`action='list'`):** Use when the user asks to see their tasks.
+
+    --- MULTI-FUNCTION CALL EXAMPLES ---
+    -   **User Input:** "Feeling productive today! I'm going to draft the project proposal this morning. This new focus on time blocking is really helping my productivity."
+        -   Call `add_log_entry` with the full text.
+        -   AND Call `manage_tasks` with `action='add'`, `task_description='Draft the project proposal'`, and an inferred `deadline`.
+
+    -   **User Input:** "I just finished the presentation slides! That took longer than expected. I also realized my main goal for this month should be to improve my design skills."
+        -   Call `add_log_entry` with the full text.
+        -   AND Call `manage_tasks` with `action='update'` to mark the presentation task as 'completed'.
+        -   AND Call `update_background_info` with `background_update_json='{{"goals": ["Improve my design skills"]}}'`.
+
+    --- RESPONSE GUIDELINES ---
+    -   Use function calls proactively and intelligently. Combine them in a single turn when appropriate.
+    -   Always provide a brief, natural language text response to acknowledge the user's input, even when calling functions.
+    -   If you call functions, the final text response should summarize what you've done (e.g., "Okay, I've added that to your log and created a new task for you.").
+    -   If no function call is needed, just respond directly to the user.
     """
 
     contents = [] # Initialize contents as an empty list
@@ -509,106 +534,124 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     final_text_response_to_user = ""
     ui_update_message = None # For messages like "Log added!"
 
-    # Check for function calls
-    if candidate.content.parts and candidate.content.parts[0].function_call:
-        fc = candidate.content.parts[0].function_call
-        function_name = fc.name
-        function_args = dict(fc.args)
-        logger.info(f"LLM requested function call: {function_name} with args: {function_args}")
+    # --- Process LLM Response: Text and Function Calls ---
+    ui_update_messages = [] # To hold messages from multiple function calls
+    model_turn_content_for_history = []
+    function_calls_exist = any(hasattr(part, "function_call") and part.function_call for part in candidate.content.parts)
 
-        # Extract any text parts from the LLM's response that decided to call a function
-        initial_llm_text_parts = []
+    # First, extract any initial text response from the LLM.
+    initial_llm_text_parts = [part.text for part in candidate.content.parts if hasattr(part, "text") and part.text]
+    final_text_response_to_user = " ".join(initial_llm_text_parts).strip()
+
+    if final_text_response_to_user:
+        model_turn_content_for_history.append({"text": final_text_response_to_user})
+
+    # If there are function calls, process them.
+    if function_calls_exist:
+        # Iterate through all parts to find and execute all function calls
         for part in candidate.content.parts:
-            if hasattr(part, "text") and part.text:
-                initial_llm_text_parts.append(part.text)
-        
-        final_text_response_to_user = " ".join(initial_llm_text_parts).strip()
+            if hasattr(part, "function_call") and part.function_call:
+                fc = part.function_call
+                function_name = fc.name
+                function_args = dict(fc.args)
+                logger.info(f"LLM requested function call: {function_name} with args: {function_args}")
 
-        # Add LLM's intent to call function to history
-        # The content for the history should represent the model's turn accurately.
-        # If the model's turn included text and a function call, both should be there.
-        model_turn_content_for_history = []
-        if final_text_response_to_user:
-             model_turn_content_for_history.append({"text": final_text_response_to_user})
-        model_turn_content_for_history.append({"function_call": fc})
+                # Add the function call to the history list for this turn
+                model_turn_content_for_history.append({"function_call": fc})
+
+                # --- Execute the function ---
+                function_response_content = {}
+                ui_message_for_this_call = None
+                if function_name == "add_log_entry":
+                    result = add_log_entry_and_persist_impl(
+                        text_input=function_args.get("text_input"),
+                        category_suggestion=function_args.get("category_suggestion"),
+                        session_state=session_state
+                    )
+                    function_response_content = result
+                    if result.get("status") == "success":
+                        ui_message_for_this_call = result.get("message")
+
+                elif function_name == "update_background_info":
+                    result = update_background_info_and_persist_impl(
+                        background_update_json=function_args.get("background_update_json"),
+                        session_state=session_state
+                    )
+                    function_response_content = result
+                    if result.get("status") == "success":
+                        ui_message_for_this_call = result.get("message")
+
+                elif function_name == "manage_tasks":
+                    result = manage_tasks_and_persist_impl(
+                        action=function_args.get("action"),
+                        session_state=session_state,
+                        task_description=function_args.get("task_description"),
+                        task_id=function_args.get("task_id"),
+                        task_status=function_args.get("task_status"),
+                        deadline=function_args.get("deadline")
+                    )
+                    function_response_content = result
+                    if result.get("status") == "success":
+                        if result.get("tasks"):
+                            tasks = result.get("tasks")
+                            if tasks:
+                                formatted_tasks = ["These are your current open tasks:"]
+                                for task in tasks:
+                                    deadline_str = ""
+                                    if task.get("deadline"):
+                                        try:
+                                            # Parse ISO string and format it
+                                            deadline_dt = dt.datetime.fromisoformat(task["deadline"].replace("Z", "+00:00"))
+                                            deadline_str = f", Deadline: {deadline_dt.strftime('%Y-%m-%d %H:%M')}"
+                                        except (ValueError, TypeError):
+                                            deadline_str = f", Deadline: {task.get('deadline')}" # Fallback
+                                    formatted_tasks.append(
+                                        f"- **Task {task['id']}**: {task['description']} (Status: {task['status']}{deadline_str})"
+                                    )
+                                ui_message_for_this_call = "\n".join(formatted_tasks)
+                            else:
+                                ui_message_for_this_call = "You have no open tasks."
+                        else:
+                            ui_message_for_this_call = result.get("message")
+                else:
+                    logger.warning(f"LLM called unknown function: {function_name}")
+                    function_response_content = {"status": "error", "message": f"Unknown function: {function_name}"}
+                    ui_message_for_this_call = f"Error: Unknown function '{function_name}' called."
+
+                if ui_message_for_this_call:
+                    ui_update_messages.append(ui_message_for_this_call)
+
+                # Add function execution result to history for the *next* turn's context
+                conversation_history.append({
+                    "role": "function",
+                    "content": [{"function_response": {"name": function_name, "response": function_response_content}}]
+                })
+        
+        # Combine initial text with messages from all function calls
+        if ui_update_messages:
+            aggregated_ui_messages = "\n".join(ui_update_messages)
+            if final_text_response_to_user:
+                final_text_response_to_user += f"\n\n{aggregated_ui_messages}"
+            else:
+                final_text_response_to_user = aggregated_ui_messages
+        elif not final_text_response_to_user: # Fallback if no initial text and no UI messages
+            final_text_response_to_user = "I've processed your request."
+
+    # Add the complete model turn (text + all function calls) to history
+    if model_turn_content_for_history:
         conversation_history.append({"role": "model", "content": model_turn_content_for_history})
 
-        function_response_content = {}
-        if function_name == "add_log_entry":
-            result = add_log_entry_and_persist_impl(
-                text_input=function_args.get("text_input"),
-                category_suggestion=function_args.get("category_suggestion"),
-                session_state=session_state
-            )
-            function_response_content = result
-            if result.get("status") == "success":
-                ui_update_message = result.get("message") # This is for the UI toast/message
+    # Handle case where there was no function call and no text response
+    if not function_calls_exist and not final_text_response_to_user:
+        logger.warning("LLM response had no function calls and no text in parts.")
+        final_text_response_to_user = "I'm not sure how to respond to that."
+        conversation_history.append({"role": "model", "content": final_text_response_to_user})
 
-        elif function_name == "update_background_info":
-            result = update_background_info_and_persist_impl(
-                background_update_json=function_args.get("background_update_json"), # Corrected param name
-                session_state=session_state
-            )
-            function_response_content = result
-            if result.get("status") == "success":
-                ui_update_message = result.get("message") # This is for the UI toast/message
-        elif function_name == "manage_tasks":
-            result = manage_tasks_and_persist_impl(
-                action=function_args.get("action"),
-                session_state=session_state,
-                task_description=function_args.get("task_description"),
-                task_id=function_args.get("task_id"),
-                task_status=function_args.get("task_status"),
-                deadline=function_args.get("deadline")
-            )
-            function_response_content = result
-            if result.get("status") == "success":
-                if result.get("tasks"):
-                     ui_update_message = f"Current tasks: {json.dumps(result.get('tasks'))}"
-                else:
-                    ui_update_message = result.get("message")
-        else:
-            logger.warning(f"LLM called unknown function: {function_name}")
-            function_response_content = {"status": "error", "message": f"Unknown function: {function_name}"}
-            ui_update_message = f"Error: Unknown function '{function_name}' called."
-
-        # Add function execution result to history (for LLM's context in future turns if needed)
-        conversation_history.append({
-            "role": "function", 
-            "content": [{"function_response": {"name": function_name, "response": function_response_content}}]
-        })
-
-        # Construct final response to user by combining initial LLM text and function UI message
-        if ui_update_message:
-            if final_text_response_to_user: # If LLM gave some initial text
-                final_text_response_to_user += f"\n\n{ui_update_message}"
-            else: # If LLM only called a function without preceding text
-                final_text_response_to_user = ui_update_message
-        elif not final_text_response_to_user: # Fallback if no initial text and no UI message
-            final_text_response_to_user = "I've processed that."
-            
-    else: # No function call, direct text response from LLM
-        if candidate.content.parts:
-            for part in candidate.content.parts:
-                if hasattr(part, "text") and part.text:
-                    final_text_response_to_user += part.text
-            conversation_history.append({"role": "model", "content": final_text_response_to_user})
-        else:
-            logger.warning("LLM response had no parts or no text in parts.")
-            final_text_response_to_user = "I'm not sure how to respond to that."
-            conversation_history.append({"role": "model", "content": final_text_response_to_user})
-
-    # Ensure there's always some response text
-    if not final_text_response_to_user.strip():
-        final_text_response_to_user = "Processed."
-        # If history already has the model turn from function call path, don't add again.
-        # Only add if it was a direct text response path that somehow ended up empty.
-        if not (candidate.content.parts and candidate.content.parts[0].function_call):
-             conversation_history.append({"role": "model", "content": final_text_response_to_user})
-
+    # The UI message for toast/notification can be the aggregation of all messages
+    ui_update_message = "\n".join(ui_update_messages) if ui_update_messages else None
 
     logger.info(f"Final text response to user: {final_text_response_to_user}")
     if ui_update_message:
-        logger.info(f"UI update message: {ui_update_message}")
+        logger.info(f"Aggregated UI update message: {ui_update_message}")
 
     return {"text_response": final_text_response_to_user, "ui_message": ui_update_message}
