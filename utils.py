@@ -629,7 +629,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         
         # Combine initial text with messages from all function calls
         if ui_update_messages:
-            aggregated_ui_messages = "\n".join(ui_update_messages)
+            aggregated_ui_messages = "\n\n".join(ui_update_messages)
             if final_text_response_to_user:
                 final_text_response_to_user += f"\n\n{aggregated_ui_messages}"
             else:
