@@ -13,101 +13,87 @@
 <body>
     <div class="mermaid">
 graph TD
-    A["User"] --> TABS{"App Tabs (st.tabs)"}
+    subgraph "User Interface (app.py)"
+        direction LR
+        A["User"] --> TABS{"App Tabs (st.tabs)"}
 
-    subgraph "Chat Tab"
-        direction TB
         TABS -- "Chat" --> CHAT_UI{"Chat Interface"}
-        CHAT_UI --> INPUT_METHOD{"Input Method?"}
-        INPUT_METHOD -- "Text" --> TEXT_IN["st.chat_input"]
-        INPUT_METHOD -- "Audio" --> AUDIO_IN["audiorecorder"]
-        
-        TEXT_IN --> PROC_USER_CHAT_INPUT{"Process User Chat Input (app.py)"}
-        AUDIO_IN --> PROC_USER_CHAT_INPUT
-        
-        PROC_USER_CHAT_INPUT --> ADD_USER_MSG_HIST["Add User Message to History (st.session_state.messages)"]
-        ADD_USER_MSG_HIST --> DISP_USER_MSG["Display User Message (st.chat_message)"]
-        DISP_USER_MSG --> GET_RESPONSE("utils.get_chat_response")
+        CHAT_UI -- "Text/Audio Input" --> GET_RESPONSE("utils.get_chat_response")
+
+        TABS -- "Input Log" --> LOG_UI{"Input Log UI"}
+        LOG_UI -- "Add Entry" --> CALL_ADD_LOG["calls utils.add_log_entry_and_persist"]
+        LOG_UI -- "Save Changes" --> CALL_UPDATE_LOG["calls utils.update_input_log_and_persist"]
+
+        TABS -- "Tasks" --> TASK_UI{"Tasks UI"}
+        TASK_UI -- "Add Task" --> CALL_ADD_TASK["calls utils.add_task_and_persist"]
+        TASK_UI -- "Save Changes" --> CALL_UPDATE_TASKS["calls utils.update_tasks_and_persist"]
+
+        TABS -- "Background Info" --> BG_UI{"Background Info UI"}
+        BG_UI -- "Save Changes" --> CALL_UPDATE_BG["calls utils.update_background_info_and_persist"]
     end
 
-    subgraph "LLM Interaction (within utils.get_chat_response)"
+    subgraph "Business Logic & Persistence (utils.py)"
         direction TB
-        GET_RESPONSE --> LLM_DECIDES{"LLM Decides Action (Gemini Model)"}
-        LLM_DECIDES -- "Direct Text Response" --> GEN_TEXT_RESP["Generate Text Response"]
-        LLM_DECIDES -- "Function Call" --> CHOOSE_FUNC{"Choose Function"}
         
-        CHOOSE_FUNC -- "Log Input?" --> CALL_LOG_FUNC["Tool Call: process_text_input_for_log"]
-        CALL_LOG_FUNC --> LOG_IMPL["process_text_input_for_log_impl (updates st.session_state.input_log)"]
-        LOG_IMPL --> FUNC_RESULT{"Function Execution Result"}
-        
-        CHOOSE_FUNC -- "Update Background?" --> CALL_BG_FUNC["Tool Call: update_background_info_in_session"]
-        CALL_BG_FUNC --> BG_IMPL["update_background_info_in_session_impl"]
-        
-        CHOOSE_FUNC -- "Manage Tasks?" --> CALL_TASK_FUNC["Tool Call: manage_tasks_in_session"]
-        CALL_TASK_FUNC --> TASK_IMPL["manage_tasks_in_session_impl"]
+        subgraph "App-Facing Functions (Called by UI)"
+            direction TB
+            CALL_ADD_LOG --> ADD_LOG_PERSIST["add_log_entry_and_persist()"]
+            CALL_UPDATE_LOG --> UPDATE_LOG_PERSIST["update_input_log_and_persist()"]
+            CALL_ADD_TASK --> ADD_TASK_PERSIST["add_task_and_persist()"]
+            CALL_UPDATE_TASKS --> UPDATE_TASKS_PERSIST["update_tasks_and_persist()"]
+            CALL_UPDATE_BG --> UPDATE_BG_PERSIST["update_background_info_and_persist()"]
 
-        BG_IMPL --> SAVE_BG["save_background_info"]
-        LOG_IMPL --> SAVE_LOG["save_input_log"]
-        TASK_IMPL --> SAVE_TASK["save_tasks"]
+            ADD_LOG_PERSIST --> ADD_LOG_IMPL["add_log_entry_and_persist_impl()"]
+            UPDATE_BG_PERSIST --> UPDATE_BG_IMPL["update_background_info_and_persist_impl()"]
+            ADD_TASK_PERSIST --> MANAGE_TASKS_IMPL_ADD["manage_tasks_and_persist_impl(action='add')"]
+            
+            UPDATE_LOG_PERSIST --> SAVE_LOG["save_input_log()"]
+            UPDATE_TASKS_PERSIST --> SAVE_TASKS["save_tasks()"]
+        end
 
-        SAVE_BG --> BG_JSON["data/background_information.json"]
-        SAVE_LOG --> LOG_CSV["data/input_logs.csv"]
-        SAVE_TASK --> TASK_CSV["data/tasks.csv"]
+        subgraph "LLM-Facing Logic (Function Calling)"
+            direction TB
+            GET_RESPONSE --> LLM_DECIDES{"LLM Decides Action"}
+            LLM_DECIDES -- "Direct Response" --> GEN_TEXT["Generate Text"]
+            LLM_DECIDES -- "Function Call" --> CHOOSE_FUNC{"Choose Tool"}
 
-        BG_IMPL --> FUNC_RESULT{"Function Execution Result"}
-        LOG_IMPL --> FUNC_RESULT
-        TASK_IMPL --> FUNC_RESULT
+            CHOOSE_FUNC -- "add_log_entry" --> ADD_LOG_IMPL
+            CHOOSE_FUNC -- "update_background_info" --> UPDATE_BG_IMPL
+            CHOOSE_FUNC -- "manage_tasks" --> MANAGE_TASKS_IMPL_LLM["manage_tasks_and_persist_impl()"]
+            
+            GEN_TEXT --> RENDER_UI["Render Response in UI"]
+            ADD_LOG_IMPL --> RENDER_UI
+            UPDATE_BG_IMPL --> RENDER_UI
+            MANAGE_TASKS_IMPL_LLM --> RENDER_UI
+        end
 
-        FUNC_RESULT --> GEN_TEXT_RESP_POST_FUNC["LLM Formulates Response (using function result)"]
-        GEN_TEXT_RESP_POST_FUNC --> ADD_ASSISTANT_MSG_HIST_FC["Add Assistant Response to History"]
-        GEN_TEXT_RESP --> ADD_ASSISTANT_MSG_HIST_DIRECT["Add Assistant Response to History"]
-        
-        ADD_ASSISTANT_MSG_HIST_FC --> DISP_ASSISTANT_MSG["Display Assistant Response (st.chat_message)"]
-        ADD_ASSISTANT_MSG_HIST_DIRECT --> DISP_ASSISTANT_MSG
-        DISP_ASSISTANT_MSG --> CHAT_UI
+        subgraph "Core Implementation & Persistence"
+            direction RL
+            
+            ADD_LOG_IMPL --> SAVE_LOG
+            UPDATE_BG_IMPL --> SAVE_BG["save_background_info()"]
+            MANAGE_TASKS_IMPL_ADD --> SAVE_TASKS
+            MANAGE_TASKS_IMPL_LLM --> SAVE_TASKS
+
+            SAVE_LOG --> LOG_CSV["data/input_logs.csv"]
+            SAVE_TASKS --> TASK_CSV["data/tasks.csv"]
+            SAVE_BG --> BG_JSON["data/background_information.json"]
+        end
     end
 
-    subgraph "Input Log Tab"
-        direction TB
-        TABS -- "Input Log" --> LOG_UI{"Input Log Interface"}
-        LOG_UI --> LOG_FORM["User Enters Log in Form (st.text_area)"]
-        LOG_FORM -- "Submit" --> APP_CALLS_LOG["app.py calls utils.process_text_input_for_log"]
-        APP_CALLS_LOG --> LOG_IMPL_MANUAL["process_text_input_for_log_impl (updates st.session_state.input_log)"]
-        LOG_IMPL_MANUAL --> DISP_LOGS["Display Input Logs (st.dataframe)"]
-        DISP_LOGS --> LOG_UI
-    end
-
-    subgraph "Background Info Tab"
-        direction TB
-        TABS -- "Background Info" --> BG_UI{"Background Info Interface"}
-        BG_UI --> BG_FORM["User Enters Info in Form (st.text_area)"]
-        BG_FORM -- "Submit" --> APP_CALLS_BG["app.py calls utils.update_background_info_in_session"]
-        APP_CALLS_BG --> BG_IMPL_MANUAL["update_background_info_in_session_impl"]
-        BG_IMPL_MANUAL --> SAVE_BG_MANUAL["save_background_info"]
-        SAVE_BG_MANUAL --> BG_JSON
-        BG_IMPL_MANUAL --> DISP_BG_INFO["Display Background Info (st.json)"]
-        DISP_BG_INFO --> BG_UI
-    end
-
-    subgraph "Tasks Tab"
-        direction TB
-        TABS -- "Tasks" --> TASK_UI{"Tasks Interface"}
-        TASK_UI --> TASK_EDITOR["User Adds/Edits Tasks (st.data_editor)"]
-        TASK_EDITOR -- "Save" --> APP_CALLS_TASK["app.py calls utils.save_tasks"]
-        APP_CALLS_TASK --> TASK_CSV
-        TASK_UI --> DISP_TASKS["Display Tasks (st.dataframe)"]
-        DISP_TASKS --> TASK_UI
-    end
-
+    classDef uiNode fill:#cde4ff,stroke:#333,stroke-width:2px;
+    classDef utilNode fill:#e6e6fa,stroke:#333,stroke-width:1px;
+    classDef persistNode fill:#d4edda,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5;
     classDef llmNode fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef functionCallNode fill:#e6e6fa,stroke:#333,stroke-width:2px;
-    classDef implNode fill:#dcdcdc,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5;
-    classDef fileNode fill:#cce5ff,stroke:#333,stroke-width:1px,shape:cylinder;
+    classDef fileNode fill:#fff2cc,stroke:#333,stroke-width:1px,shape:cylinder;
 
-    class GET_RESPONSE,LLM_DECIDES,GEN_TEXT_RESP,GEN_TEXT_RESP_POST_FUNC llmNode;
-    class CALL_LOG_FUNC,CALL_BG_FUNC,CALL_TASK_FUNC functionCallNode;
-    class LOG_IMPL,BG_IMPL,LOG_IMPL_MANUAL,BG_IMPL_MANUAL,TASK_IMPL,SAVE_LOG,SAVE_BG,SAVE_TASK,SAVE_BG_MANUAL,APP_CALLS_TASK implNode;
-    class LOG_CSV,BG_JSON,TASK_CSV fileNode;
+    class A,TABS,CHAT_UI,LOG_UI,TASK_UI,BG_UI uiNode;
+    class GET_RESPONSE,LLM_DECIDES,GEN_TEXT,CHOOSE_FUNC llmNode;
+    class CALL_ADD_LOG,CALL_UPDATE_LOG,CALL_ADD_TASK,CALL_UPDATE_TASKS,CALL_UPDATE_BG utilNode;
+    class ADD_LOG_PERSIST,UPDATE_LOG_PERSIST,ADD_TASK_PERSIST,UPDATE_TASKS_PERSIST,UPDATE_BG_PERSIST utilNode;
+    class ADD_LOG_IMPL,UPDATE_BG_IMPL,MANAGE_TASKS_IMPL_ADD,MANAGE_TASKS_IMPL_LLM utilNode;
+    class SAVE_LOG,SAVE_TASKS,SAVE_BG persistNode;
+    class LOG_CSV,TASK_CSV,BG_JSON fileNode;
     </div>
     <script>
         mermaid.initialize({
