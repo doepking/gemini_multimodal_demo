@@ -187,10 +187,14 @@ def _save_json(data, file_path):
         json.dump(data, f, indent=4)
 
 def _load_json(file_path):
-    """Loads data from a JSON file."""
-    if os.path.exists(file_path):
-        with open(file_path, 'r') as f:
-            return json.load(f)
+    """Loads data from a JSON file, handling empty files."""
+    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+        try:
+            with open(file_path, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            logger.warning(f"JSON file is invalid or empty: {file_path}")
+            return {}
     return {}
 
 # --- Public Data Handling Functions ---
@@ -231,19 +235,16 @@ def manage_tasks_and_persist_impl(action: str, session_state, task_description: 
                 # Try parsing as a full ISO datetime first
                 dt.datetime.fromisoformat(deadline.replace("Z", "+00:00"))
                 task_deadline = deadline
-            except ValueError:
-                # If that fails, it might be a date-only string (e.g., from a date picker)
+            except (ValueError, TypeError):
+                 # If that fails, it might be a date-only string (e.g., from a date picker)
                 try:
                     d = dt.datetime.strptime(deadline, "%Y-%m-%d").date()
                     # Combine the date with the current time to fulfill the "time now" aspect
                     now_time = dt.datetime.now(dt.timezone.utc).time()
                     task_deadline_dt = dt.datetime.combine(d, now_time, tzinfo=dt.timezone.utc)
                     task_deadline = task_deadline_dt.isoformat()
-                except ValueError:
+                except (ValueError, TypeError):
                     return {"status": "error", "message": "Invalid deadline format. Please use ISO format or YYYY-MM-DD."}
-        else:
-            # Default to 7 days in the future from the current time
-            task_deadline = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=7)).isoformat()
 
         new_task = {
             "id": len(session_state.tasks) + 1,
@@ -383,10 +384,18 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     recent_logs_str = "\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
     tasks_preview = [f"ID: {task['id']}, Desc: {task['description']}, Status: {task['status']}" for task in session_state.get('tasks', [])]
     tasks_str = "\n- ".join(tasks_preview) if tasks_preview else "No tasks."
+    
+    now = dt.datetime.now(dt.timezone.utc)
+    current_time_str = now.isoformat()
+    current_weekday_str = now.strftime('%A')
 
     system_prompt = f"""
     You are a helpful AI assistant. Your user is interacting with you through a multimodal chat interface.
     You can process text and audio. You also have access to tools to log information and update user background.
+
+    CURRENT TIME:
+    - ISO Format: {current_time_str}
+    - Weekday: {current_weekday_str}
 
     CURRENT USER BACKGROUND INFO (stored in session):
     ```json
@@ -418,7 +427,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         Example: User says "My main goal now is to exercise more, and I live in Berlin." -> Call `update_background_info` with background_update_json='{{"goals": ["Exercise more"], "user_profile": {{"location": {{"city": "Berlin"}}}}}}'.
         Example with escaping: User says "My note is about \"quotes\" and backslashes \\." -> Call `update_background_info` with background_update_json='{{"user_provided_info": "My note is about \\\"quotes\\\" and backslashes \\\\."}}'.
     3.  If the user wants to add, update, or see their tasks, call `manage_tasks`.
-        - To add: `action='add'`, `task_description='...'`
+        - To add: `action='add'`, `task_description='...'`. When adding a task, if the user mentions a deadline (e.g., "tomorrow", "next Friday at 3pm"), you MUST infer the date and time, convert it to a full ISO 8601 string (YYYY-MM-DDTHH:MM:SSZ), and pass it as the `deadline` argument. If no deadline is mentioned, do not pass the `deadline` argument.
         - To update: `action='update'`, `task_id=...`, `task_status='...'`
         - To list: `action='list'`
     4.  You can call multiple functions if appropriate. For example, if a user says "I learned that my value is 'kindness' and I want to log that I had a good day", you could call both functions.
