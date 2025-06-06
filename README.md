@@ -10,12 +10,12 @@ AI through both text and audio input. This version introduces **input logging** 
 -   **Audio Chat:** Record and send audio messages to the AI, which will transcribe and process them.
 -   **Input Logging:** Log thoughts, observations, or any text input via a dedicated "Input Log" tab. Logs are fully editable directly in the UI.
 -   **Background Information Management:** Provide and update personal background information (goals, values, preferences) in the "Background Info" tab. The entire information object is editable as a JSON in the UI. The LLM can use this information to tailor its responses.
+-   **Task Management:** A new "Tasks" tab allows users to view, add, delete, and edit tasks in a data grid. Tasks can also be managed via chat by asking the AI.
 -   **LLM Function Calling:** The Gemini model can now intelligently decide to call specific functions to:
     *   Log user input.
     *   Update user background information.
     *   Manage tasks (add, update, list).
     This enables more dynamic and context-aware interactions.
--   **Task Management:** A new "Tasks" tab allows users to view, add, delete, and edit tasks in a data grid. Tasks can also be managed via chat by asking the AI.
 -   **Data Persistence:** Input logs, background information, and tasks are now persisted to `.csv` and `.json` files in the `data/` directory, so they are not lost when the application restarts.
 -   **Conversation History:** The application maintains a history of the conversation, allowing the AI to provide contextually
 relevant responses.
