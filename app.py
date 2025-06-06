@@ -216,6 +216,7 @@ with tab3:
         df_tasks = pd.DataFrame(st.session_state.tasks)
         # Ensure columns are in a consistent order
         df_tasks = df_tasks[["id", "description", "status", "deadline", "created_at"]]
+        df_tasks["deadline"] = pd.to_datetime(df_tasks["deadline"])
         df_tasks.rename(columns={"id": "ID", "description": "Description", "status": "Status", "deadline": "Deadline", "created_at": "Created At"}, inplace=True)
 
         edited_tasks_df = st.data_editor(
@@ -227,9 +228,9 @@ with tab3:
             column_config={
                 "ID": st.column_config.Column("ID", disabled=True),
                 "Created At": st.column_config.Column("Created At", disabled=True),
-                "Deadline": st.column_config.DateColumn(
+                "Deadline": st.column_config.DatetimeColumn(
                     "Deadline",
-                    format="YYYY-MM-DD",
+                    format="YYYY-MM-DD HH:mm:ss",
                     required=True,
                 ),
                 "Status": st.column_config.SelectboxColumn(
@@ -241,6 +242,8 @@ with tab3:
         )
 
         if st.button("Save Task Changes"):
+            # Convert deadline back to ISO string before saving
+            edited_tasks_df['Deadline'] = edited_tasks_df['Deadline'].apply(lambda x: x.isoformat())
             updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Deadline": "deadline", "Created At": "created_at"}).to_dict('records')
             result = update_tasks_and_persist(updated_tasks, st.session_state)
             st.success(result.get("message", "Task changes saved!"))
@@ -250,11 +253,23 @@ with tab3:
     with st.form("new_task_form"):
         st.subheader("Add a New Task")
         new_task_description = st.text_input("Task Description")
-        new_task_deadline = st.date_input("Deadline", value=dt.date.today() + dt.timedelta(days=7))
+        
+        # Separate date and time inputs
+        col1, col2 = st.columns(2)
+        with col1:
+            new_task_date = st.date_input("Deadline Date", value=dt.date.today() + dt.timedelta(days=7))
+        with col2:
+            new_task_time = st.time_input("Deadline Time", value=dt.time(12, 00))
+
         submit_new_task = st.form_submit_button("Add Task")
 
         if submit_new_task and new_task_description:
-            deadline_str = new_task_deadline.isoformat()
+            # Combine date and time into a single datetime object
+            new_task_deadline = dt.datetime.combine(new_task_date, new_task_time)
+            # Make it timezone-aware (assuming UTC for consistency)
+            new_task_deadline_utc = new_task_deadline.astimezone(dt.timezone.utc)
+            
+            deadline_str = new_task_deadline_utc.isoformat()
             result = add_task_and_persist(new_task_description, st.session_state, deadline=deadline_str)
             st.success(result.get("message", f"Task '{new_task_description}' added!"))
             st.rerun()
