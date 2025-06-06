@@ -57,10 +57,10 @@ if 'edit_background' not in st.session_state:
     st.session_state.edit_background = False
 
 # --- Main App Content ---
-st.title("AI-Powered Life Tracker with Gemini")
+st.title("Life Tracker with Gemini AI")
 st.write(
-    "This is an AI-powered assistant to help you track your thoughts, tasks, and background information. "
-    "Interact with the Gemini model via text or audio, and manage your data across the different tabs. "
+    "This is an AI-powered assistant to help you track your thoughts, tasks, and background information.  \n"
+    "Interact with the Gemini model via text or audio, and manage your data across the different tabs.  \n"
     "All data is editable and is persisted locally."
 )
 
