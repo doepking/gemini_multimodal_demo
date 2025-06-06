@@ -5,7 +5,18 @@ from audiorecorder import audiorecorder
 import datetime as dt
 import pandas as pd
 
-from utils import get_chat_response, start_new_chat, process_text_input_for_log, update_background_info_in_session
+from utils import (
+    get_chat_response,
+    start_new_chat,
+    process_text_input_for_log,
+    update_background_info_in_session,
+    load_input_log,
+    save_input_log,
+    load_tasks,
+    save_tasks,
+    load_background_info,
+    save_background_info,
+)
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -24,13 +35,23 @@ if "last_audio_duration" not in st.session_state:
     st.session_state.audio_recordings = []
     st.session_state.counter = 0 # Used for unique keys for recorder/input
 
-# Initialize session state for input log and background info
+# --- Initialize Session State from Files ---
+if "conversation_history" not in st.session_state:
+    st.session_state.conversation_history = start_new_chat()
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "last_audio_duration" not in st.session_state:
+    st.session_state.last_audio_duration = -1.0
+    st.session_state.audio_recordings = []
+    st.session_state.counter = 0 # Used for unique keys for recorder/input
+
+# Initialize session state for input log, background info, and tasks from files
 if 'input_log' not in st.session_state:
-    st.session_state.input_log = [] # List of dictionaries
+    st.session_state.input_log = load_input_log()
 if 'background_info' not in st.session_state:
-    st.session_state.background_info = {} # Dictionary
+    st.session_state.background_info = load_background_info()
 if 'tasks' not in st.session_state:
-    st.session_state.tasks = [] # List of task dictionaries
+    st.session_state.tasks = load_tasks()
 
 # --- Main App Content ---
 st.title("Multimodal AI Chat with Gemini")
@@ -168,12 +189,11 @@ with tab2:
         if submit_log and new_log_content:
             processed_entry = process_text_input_for_log(new_log_content, st.session_state)
             st.session_state.input_log.append(processed_entry)
+            save_input_log(st.session_state.input_log)
             st.success(f"Log added: '{processed_entry.get('content_preview', 'Entry')}'")
+            st.rerun()
 
 with tab3:
-    st.header("Task Management")
-    st.write("Manage your tasks directly here.")
-
     if not st.session_state.tasks:
         st.info("No tasks yet. Add one below or ask the chat assistant to add one for you!")
         df_tasks = pd.DataFrame(columns=["ID", "Description", "Status", "Created At"])
@@ -206,8 +226,8 @@ with tab3:
         # Logic to update session state from the edited dataframe
         updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Created At": "created_at"}).to_dict('records')
         
-        # A simple overwrite is easiest for session state. For a DB, you'd do updates/deletes.
         st.session_state.tasks = updated_tasks
+        save_tasks(st.session_state.tasks)
         st.success("Task changes saved to session!")
         st.rerun()
 
@@ -225,6 +245,7 @@ with tab3:
                 "created_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             st.session_state.tasks.append(new_task)
+            save_tasks(st.session_state.tasks)
             st.success(f"Task '{new_task_description}' added!")
             st.rerun()
 
@@ -250,4 +271,6 @@ with tab4:
 
         if submit_background and background_text:
             update_background_info_in_session(background_text, st.session_state)
+            save_background_info(st.session_state.background_info)
             st.success("Background information updated!")
+            st.rerun()

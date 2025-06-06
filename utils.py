@@ -2,6 +2,7 @@ import os
 import logging
 import json
 import datetime as dt
+import pandas as pd
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -155,11 +156,59 @@ chat_tools = types.Tool(
     ]
 )
 
+# --- File Paths for Persistence ---
+INPUT_LOG_FILE = "input_logs.csv"
+BACKGROUND_INFO_FILE = "background_information.json"
+TASKS_FILE = "tasks.csv"
+
+# --- Data Persistence Functions ---
+def _save_csv(df, file_path):
+    """Saves a DataFrame to a CSV file."""
+    df.to_csv(file_path, index=False)
+
+def _load_csv(file_path):
+    """Loads data from a CSV file."""
+    if os.path.exists(file_path):
+        df = pd.read_csv(file_path)
+        return df.to_dict('records')
+    return []
+
+def _save_json(data, file_path):
+    """Saves a dictionary to a JSON file."""
+    with open(file_path, 'w') as f:
+        json.dump(data, f, indent=4)
+
+def _load_json(file_path):
+    """Loads data from a JSON file."""
+    if os.path.exists(file_path):
+        with open(file_path, 'r') as f:
+            return json.load(f)
+    return {}
+
+# --- Public Data Handling Functions ---
+def load_input_log():
+    return _load_csv(INPUT_LOG_FILE)
+
+def save_input_log(data):
+    _save_csv(pd.DataFrame(data), INPUT_LOG_FILE)
+
+def load_tasks():
+    return _load_csv(TASKS_FILE)
+
+def save_tasks(data):
+    _save_csv(pd.DataFrame(data), TASKS_FILE)
+
+def load_background_info():
+    return _load_json(BACKGROUND_INFO_FILE)
+
+def save_background_info(data):
+    _save_json(data, BACKGROUND_INFO_FILE)
+
 # --- Core Implementation Functions (to be called by LLM-triggered functions) ---
 
 def manage_tasks_in_session_impl(action: str, session_state, task_description: str = None, task_id: int = None, task_status: str = None):
     """
-    Manages tasks in st.session_state.tasks.
+    Manages tasks in st.session_state.tasks and saves changes to CSV.
     """
     if 'tasks' not in session_state:
         session_state.tasks = []
@@ -174,6 +223,7 @@ def manage_tasks_in_session_impl(action: str, session_state, task_description: s
             "created_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         session_state.tasks.append(new_task)
+        save_tasks(session_state.tasks)
         logger.info(f"Task added: {new_task}")
         return {"status": "success", "message": f"Task added: '{task_description}'", "task": new_task}
 
@@ -185,6 +235,7 @@ def manage_tasks_in_session_impl(action: str, session_state, task_description: s
             if task["id"] == task_id:
                 task["status"] = task_status
                 task_found = True
+                save_tasks(session_state.tasks)
                 logger.info(f"Task {task_id} updated to {task_status}")
                 return {"status": "success", "message": f"Task {task_id} updated to {task_status}", "task": task}
         if not task_found:
@@ -196,11 +247,9 @@ def manage_tasks_in_session_impl(action: str, session_state, task_description: s
     else:
         return {"status": "error", "message": f"Unknown task action: {action}"}
 
-
 def process_text_input_for_log_impl(text_input: str, category_suggestion: str = None, session_state=None):
     """
-    Processes and logs text input to st.session_state.input_log.
-    (Simplified version for session state)
+    Processes and logs text input to st.session_state.input_log and saves to CSV.
     """
     if session_state is None:
         logger.error("Session state not provided to process_text_input_for_log_impl")
@@ -217,13 +266,13 @@ def process_text_input_for_log_impl(text_input: str, category_suggestion: str = 
     if 'input_log' not in session_state:
         session_state.input_log = []
     session_state.input_log.append(log_entry)
+    save_input_log(session_state.input_log)
     logger.info(f"Input logged: {log_entry['content_preview']}")
     return {"status": "success", "message": f"Log added: '{log_entry['content_preview']}'", "entry": log_entry}
 
 def update_background_info_in_session_impl(background_update_json: str, session_state=None):
     """
-    Updates background information in st.session_state.background_info.
-    (Simplified version for session state - attempts a basic merge or overwrite for 'user_provided_info')
+    Updates background information in st.session_state.background_info and saves to CSV.
     """
     if session_state is None:
         logger.error("Session state not provided to update_background_info_in_session_impl")
@@ -256,6 +305,9 @@ def update_background_info_in_session_impl(background_update_json: str, session_
         # If not JSON, assume it's free text for the general info field
         session_state.background_info["user_provided_info"] = background_update_json
         message = "Background information updated with free text."
+
+    # Save the updated background info to CSV
+    save_background_info(session_state.background_info)
 
     logger.info(f"Background info updated. Current: {session_state.background_info}")
     return {"status": "success", "message": message, "updated_info": session_state.background_info}
