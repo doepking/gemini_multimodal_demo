@@ -168,3 +168,4 @@ data*
 *.json
 deploy.sh
 build.sh
+.streamlit/secrets.toml
