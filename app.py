@@ -207,12 +207,12 @@ with st.sidebar:
             height: 90px; 
             object-fit: cover; 
             margin-bottom: 15px;
-            border: 3px solid #4CAF50; /* Green border */
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            border: 4px solid #1DA1F2; /* Twitter Blue */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
         }
         .username { 
             font-weight: bold; 
-            font-size: 20px; 
+            font-size: 22px; 
             margin-bottom: 10px; 
         }
         .stats { 
@@ -220,30 +220,24 @@ with st.sidebar:
             justify-content: space-around; 
             width: 100%; 
             margin-bottom: 20px; 
-            padding: 10px;
-            background-color: #f9f9f9;
-            border-radius: 10px;
         }
         .stat-item { 
             text-align: center; 
         }
         .stat-count { 
             font-weight: bold; 
-            font-size: 18px; 
-            color: #4CAF50;
+            font-size: 20px; 
+            color: #1DA1F2;
         }
-        .calendar-wrapper {
-            display: flex;
-            justify-content: center;
-            width: 100%;
+        #calendar-container {
+            margin: auto;
             margin-bottom: 15px;
         }
         .motivational-text {
             text-align: center; 
-            font-size: 14px; 
-            color: #666; 
+            font-size: 15px; 
+            color: #555; 
             margin-top: 10px;
-            font-style: italic;
         }
     </style>
     """,
@@ -264,9 +258,9 @@ with st.sidebar:
                     <div>Day Streak</div>
                 </div>
             </div>
-            <div class="calendar-wrapper">{activity_data["calendar_html"]}</div>
+            <div id="calendar-container">{activity_data["calendar_html"]}</div>
             <div class="motivational-text">
-                Keep up the great work! Consistency is key to insightful reflections.
+                Every entry is a step towards self-discovery.
             </div>
         </div>
         """,
