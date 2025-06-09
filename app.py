@@ -76,12 +76,12 @@ def generate_calendar_html(today, dates_with_inputs):
         .calendar-grid {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
-            gap: 5px;
+            gap: 4px;
             margin-bottom: 10px;
         }
         .calendar-day-box {
-            width: 20px;
-            height: 20px;
+            width: 18px;
+            height: 18px;
             border-radius: 4px;
             border: 1px solid rgba(0,0,0,0.05);
             transition: transform 0.2s ease-in-out;
@@ -125,13 +125,13 @@ def generate_calendar_html(today, dates_with_inputs):
         if count == 0:
             day_color = "#EBEDF0" # Light Grey
         elif 1 <= count <= 2:
-            day_color = "#C6E48B" # Light Green
+            day_color = "#9BE9A8" # Light Green
         elif 3 <= count <= 4:
-            day_color = "#7BC96F" # Medium Green
+            day_color = "#40C463" # Medium Green
         elif 5 <= count <= 6:
-            day_color = "#239A3B" # Dark Green
+            day_color = "#30A14E" # Dark Green
         else:
-            day_color = "#196127" # Darkest Green
+            day_color = "#216E39" # Darkest Green
         
         title_text = f"{count} contribution{'s' if count != 1 else ''} on {day.strftime('%b %d, %Y')}"
         calendar_html += f"<div class='calendar-day-box' title='{title_text}' style='background-color: {day_color};'></div>"
@@ -146,16 +146,16 @@ def generate_calendar_html(today, dates_with_inputs):
             <div class='legend-color-box' style='background-color: #EBEDF0;'></div>
         </div>
         <div class='legend-item'>
-            <div class='legend-color-box' style='background-color: #C6E48B;'></div>
+            <div class='legend-color-box' style='background-color: #9BE9A8;'></div>
         </div>
         <div class='legend-item'>
-            <div class='legend-color-box' style='background-color: #7BC96F;'></div>
+            <div class='legend-color-box' style='background-color: #40C463;'></div>
         </div>
         <div class='legend-item'>
-            <div class='legend-color-box' style='background-color: #239A3B;'></div>
+            <div class='legend-color-box' style='background-color: #30A14E;'></div>
         </div>
         <div class='legend-item'>
-            <div class='legend-color-box' style='background-color: #196127;'></div>
+            <div class='legend-color-box' style='background-color: #216E39;'></div>
         </div>
         <span>More</span>
     </div>
