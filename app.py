@@ -17,13 +17,14 @@ from utils import (
     load_input_log,
     load_tasks,
     load_background_info,
+    trigger_newsletter_send,
 )
 
 # --- Page Configuration ---
 st.set_page_config(
     page_title="Gemini Multimodal Demo",
     page_icon=":speech_balloon:",
-    layout="centered"
+    layout="wide"
 )
 
 # --- Initialize Session State ---
@@ -56,7 +57,225 @@ if 'tasks' not in st.session_state:
 if 'edit_background' not in st.session_state:
     st.session_state.edit_background = False
 
+# --- Helper Functions ---
+def generate_calendar_html(start_date, end_date, dates_with_inputs):
+    """Generates a more UI-friendly HTML for the activity calendar."""
+
+    # --- Calendar Styling ---
+    style = """
+    <style>
+        .calendar-container {
+            display: grid;
+            grid-template-columns: repeat(53, 16px); /* 53 weeks */
+            grid-template-rows: repeat(7, 16px); /* 7 days */
+            grid-auto-flow: column;
+            gap: 3px;
+            margin: auto;
+        }
+        .calendar-day {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+    </style>
+    """
+
+    calendar_html = style + "<div class='calendar-container'>"
+    total_days = (end_date - start_date).days + 1
+
+    # Create a list of all days to be displayed
+    all_dates = [start_date + dt.timedelta(days=i) for i in range(total_days)]
+
+    for day in all_dates:
+        date_str = day.strftime("%Y-%m-%d")
+        count = dates_with_inputs.get(date_str, 0)
+
+        if count == 0:
+            day_color = "#EBEDF0" # Light Grey
+        elif 1 <= count <= 2:
+            day_color = "#9BE9A8" # Light Green
+        elif 3 <= count <= 4:
+            day_color = "#40C463" # Medium Green
+        else:
+            day_color = "#216E39" # Dark Green
+
+        title_text = f"{count} inputs on {date_str}" if count else f"No inputs on {date_str}"
+        calendar_html += f"<div class='calendar-day' title='{title_text}' style='background-color: {day_color};'></div>"
+
+    calendar_html += "</div>"
+    return calendar_html
+
+def calculate_activity_data(input_log):
+    """Calculates activity data including calendar HTML and streaks."""
+    if not input_log:
+        return {"calendar_html": "<div>No activity.</div>", "current_streak": 0, "num_inputs": 0}
+
+    df = pd.DataFrame(input_log)
+    df['date'] = pd.to_datetime(df['timestamp']).dt.date
+
+    dates_with_counts = df.groupby('date').size().to_dict()
+    dates_with_counts_str_keys = {k.strftime("%Y-%m-%d"): v for k, v in dates_with_counts.items()}
+
+    today = dt.date.today()
+    start_date_cal = today - dt.timedelta(days=89)
+    calendar_html = generate_calendar_html(start_date_cal, today, dates_with_counts_str_keys)
+
+    unique_dates = sorted(df['date'].unique(), reverse=True)
+    current_streak = 0
+
+    if not unique_dates:
+        return {"calendar_html": calendar_html, "current_streak": 0, "num_inputs": len(df)}
+
+    if unique_dates[0] == today or unique_dates[0] == today - dt.timedelta(days=1):
+        current_streak = 1
+        for i in range(len(unique_dates) - 1):
+            if (unique_dates[i] - unique_dates[i+1]).days == 1:
+                current_streak += 1
+            else:
+                break
+
+    return {"calendar_html": calendar_html, "current_streak": current_streak, "num_inputs": len(df)}
+
 # --- Main App Content ---
+if not (hasattr(st.user, 'is_logged_in') and st.user.is_logged_in):
+    st.markdown(
+        '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"/>',
+        unsafe_allow_html=True,
+    )
+
+    # Custom CSS for the Google Sign-In button
+    st.markdown("""
+        <style>
+            div[data-testid="stButton"] > button {
+                background-color: white;
+                color: black;
+                padding: 10px 20px;
+                border: 1px solid #DADCE0;
+                border-radius: 24px;
+                cursor: pointer;
+                font-size: 16px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.3);
+                transition: all 0.2s ease-in-out;
+                margin-left: auto;
+                margin-right: auto;
+                width: fit-content;
+            }
+            div[data-testid="stButton"] > button:hover {
+                box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.4);
+                transform: translateY(-2px);
+            }
+            div[data-testid="stButton"] > button:before {
+                font-family: 'Font Awesome 5 Brands';
+                content: '\\f1a0';
+                display: inline-block;
+                padding-right: 10px;
+                vertical-align: middle;
+                font-weight: 900;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1,1,1])
+    with col2:
+        if st.button("Sign in with Google", key="google_login"):
+            try:
+                st.login("google")
+            except Exception as e:
+                st.error(f"Login failed: {e}")
+    st.stop()
+
+# --- User IS Logged In ---
+activity_data = calculate_activity_data(st.session_state.input_log)
+
+with st.sidebar:
+    st.markdown(
+        """
+    <style>
+        .profile-container { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            margin-bottom: 20px; 
+        }
+        .profile-picture { 
+            border-radius: 50%; 
+            width: 90px; 
+            height: 90px; 
+            object-fit: cover; 
+            margin-bottom: 15px;
+            border: 3px solid #4CAF50; /* Green border */
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .username { 
+            font-weight: bold; 
+            font-size: 20px; 
+            margin-bottom: 10px; 
+        }
+        .stats { 
+            display: flex; 
+            justify-content: space-around; 
+            width: 100%; 
+            margin-bottom: 20px; 
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 10px;
+        }
+        .stat-item { 
+            text-align: center; 
+        }
+        .stat-count { 
+            font-weight: bold; 
+            font-size: 18px; 
+            color: #4CAF50;
+        }
+        .calendar-wrapper {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+        .motivational-text {
+            text-align: center; 
+            font-size: 14px; 
+            color: #666; 
+            margin-top: 10px;
+            font-style: italic;
+        }
+    </style>
+    """,
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f"""
+        <div class="profile-container">
+            <img src="{st.user.picture}" class="profile-picture">
+            <div class="username">{st.user.name}</div>
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-count">{activity_data["num_inputs"]}</div>
+                    <div>Total Logs</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-count">{activity_data["current_streak"]}</div>
+                    <div>Day Streak</div>
+                </div>
+            </div>
+            <div class="calendar-wrapper">{activity_data["calendar_html"]}</div>
+            <div class="motivational-text">
+                Keep up the great work! Consistency is key to insightful reflections.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    if st.button("Logout", key="logout_button", use_container_width=True):
+        st.logout()
+        st.rerun()
+
 st.title("Life Tracker with Gemini AI")
 st.write(
     "This is an AI-powered assistant to help you track your thoughts, tasks, and background information.  \n"
@@ -64,7 +283,7 @@ st.write(
     "All data is editable and is persisted locally."
 )
 
-tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info", "Newsletter"])
 
 with tab1:
     st.subheader("Hey there 👋, what's on your mind?")
@@ -319,3 +538,20 @@ with tab4:
             if st.button("Edit Background Info"):
                 toggle_edit_mode()
                 st.rerun()
+
+with tab5:
+    st.header("Manual Newsletter Trigger")
+    st.write("Click the button below to trigger a newsletter send to your own email address.")
+    st.warning("Note: This requires SMTP environment variables to be set correctly in your project's `.env` file (e.g., `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `NEWSLETTER_SENDER_EMAIL`).", icon="⚠️")
+
+    if st.button("Send Newsletter Now", key="send_newsletter_btn"):
+        with st.spinner("Sending newsletter..."):
+            result = trigger_newsletter_send(
+                user_email=st.user.email,
+                user_name=st.user.name
+            )
+
+        if result.get("status") == "success":
+            st.success(result.get("message", "Newsletter sent successfully!"))
+        else:
+            st.error(result.get("message", "An unknown error occurred."))
