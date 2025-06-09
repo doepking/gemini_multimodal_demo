@@ -5,6 +5,8 @@ import streamlit as st
 from audiorecorder import audiorecorder
 import datetime as dt
 import pandas as pd
+import requests
+import base64
 
 from utils import (
     get_chat_response,
@@ -68,14 +70,14 @@ def generate_calendar_html(today, dates_with_inputs):
             display: grid;
             grid-template-columns: repeat(7, 1fr);
             grid-template-rows: repeat(5, 1fr);
-            gap: 1px;
+            gap: 3px;
             width: auto;
             margin: auto;
         }
         .calendar-day-box {
-            width: 15px;
-            height: 15px;
-            border-radius: 3px;
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
             border: 1px solid rgba(0,0,0,0.05);
             margin: auto;
         }
@@ -310,10 +312,20 @@ with st.sidebar:
     """,
         unsafe_allow_html=True
     )
+    image_url = st.user.picture
+    try:
+        response = requests.get(image_url)
+        response.raise_for_status()
+        image_data = base64.b64encode(response.content).decode("utf-8")
+        image_src = f"data:image/jpeg;base64,{image_data}"
+    except requests.exceptions.RequestException as e:
+        image_src = "" # Fallback to an empty string or a default placeholder image
+        st.error(f"Failed to load profile image: {e}")
+
     st.markdown(
         f"""
         <div class="profile-container">
-            <img src="{st.user.picture.replace('=s96-c', '=s100-c-k-no-mo-no-rj-c0xffffff')}" class="profile-picture">
+            <img src="{image_src}" class="profile-picture">
             <div class="username">{st.user.name}</div>
             <div class="stats-grid">
                 <div class="stat-item log-stats">
