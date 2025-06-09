@@ -64,19 +64,17 @@ def generate_calendar_html(today, dates_with_inputs):
     # --- Calendar Styling ---
     style = """
     <style>
-        .calendar-table {
-            border-collapse: collapse;
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            grid-template-rows: repeat(5, 1fr);
+            gap: 4px;
             width: 100%;
             margin: auto;
         }
-        .calendar-table th, .calendar-table td {
-            text-align: center;
-            padding: 5px;
-            width: 14.28%;
-        }
         .calendar-day-box {
-            width: 24px;
-            height: 24px;
+            width: 20px;
+            height: 20px;
             border-radius: 4px;
             border: 1px solid rgba(0,0,0,0.05);
             margin: auto;
@@ -89,33 +87,26 @@ def generate_calendar_html(today, dates_with_inputs):
     # Go back 4 full weeks from the start of this week to get 5 weeks in total
     start_date = start_of_week - dt.timedelta(weeks=4)
 
-    calendar_html = style + "<table class='calendar-table'><thead><tr>"
-    days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    for day in days_of_week:
-        calendar_html += f"<th>{day}</th>"
-    calendar_html += "</tr></thead><tbody>"
+    calendar_html = style + "<div class='calendar-grid'>"
 
-    for week in range(5):
-        calendar_html += "<tr>"
-        for day_of_week in range(7):
-            day = start_date + dt.timedelta(weeks=week, days=day_of_week)
-            date_str = day.strftime("%Y-%m-%d")
-            count = dates_with_inputs.get(date_str, 0)
+    for i in range(35):
+        day = start_date + dt.timedelta(days=i)
+        date_str = day.strftime("%Y-%m-%d")
+        count = dates_with_inputs.get(date_str, 0)
 
-            if count == 0:
-                day_color = "#EBEDF0" # Light Grey
-            elif 1 <= count <= 2:
-                day_color = "#9BE9A8" # Light Green
-            elif 3 <= count <= 4:
-                day_color = "#40C463" # Medium Green
-            else:
-                day_color = "#216E39" # Dark Green
-            
-            title_text = f"{count} inputs on {date_str}" if count else f"No inputs on {date_str}"
-            calendar_html += f"<td><div class='calendar-day-box' title='{title_text}' style='background-color: {day_color};'></div></td>"
-        calendar_html += "</tr>"
+        if count == 0:
+            day_color = "#EBEDF0" # Light Grey
+        elif 1 <= count <= 2:
+            day_color = "#9BE9A8" # Light Green
+        elif 3 <= count <= 4:
+            day_color = "#40C463" # Medium Green
+        else:
+            day_color = "#216E39" # Dark Green
+        
+        title_text = f"{count} inputs on {date_str}" if count else f"No inputs on {date_str}"
+        calendar_html += f"<div class='calendar-day-box' title='{title_text}' style='background-color: {day_color};'></div>"
     
-    calendar_html += "</tbody></table>"
+    calendar_html += "</div>"
     return calendar_html
 
 def calculate_task_stats(tasks):
