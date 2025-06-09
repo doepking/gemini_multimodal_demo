@@ -70,14 +70,14 @@ def generate_calendar_html(today, dates_with_inputs):
             display: grid;
             grid-template-columns: repeat(7, 1fr);
             grid-template-rows: repeat(5, 1fr);
-            gap: 3px;
+            gap: 4px;
             width: auto;
             margin: auto;
         }
         .calendar-day-box {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
+            width: 18px;
+            height: 18px;
+            border-radius: 3px;
             border: 1px solid rgba(0,0,0,0.05);
             margin: auto;
         }
