@@ -119,6 +119,11 @@ def generate_calendar_html(today, dates_with_inputs):
 
     for i in range(35):
         day = start_date + dt.timedelta(days=i)
+        
+        if day > today:
+            calendar_html += "<div class='calendar-day-box' style='background-color: transparent; border: none;'></div>"
+            continue
+
         date_str = day.strftime("%Y-%m-%d")
         count = dates_with_inputs.get(date_str, 0)
 
