@@ -257,13 +257,17 @@ with st.sidebar:
             align-items: center; 
             margin-bottom: 20px; 
         }
-        .profile-picture { 
-            border-radius: 50%; 
-            width: 100px; 
-            height: 100px; 
-            object-fit: cover; 
+        .profile-picture {
+            border-radius: 50%;
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
             margin-bottom: 15px;
-            border: 4px solid #4A90E2; /* Softer Blue */
+            border: 4px solid transparent;
+            background-image: linear-gradient(white, white), 
+                              radial-gradient(circle at top left, #fdc468, #df4949);
+            background-origin: border-box;
+            background-clip: content-box, border-box;
             box-shadow: 0 4px 12px rgba(0,0,0,0.25);
         }
         .username { 
@@ -300,6 +304,9 @@ with st.sidebar:
             display: flex;
             justify-content: center;
             margin-bottom: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            padding: 10px;
         }
         .motivational-text {
             text-align: center; 
@@ -637,7 +644,8 @@ with tab5:
         with st.spinner("Sending newsletter..."):
             result = trigger_newsletter_send(
                 user_email=st.user.email,
-                user_name=st.user.name
+                user_name=st.user.name,
+                session_state=st.session_state
             )
 
         if result.get("status") == "success":
