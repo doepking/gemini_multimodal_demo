@@ -66,20 +66,46 @@ def generate_calendar_html(today, dates_with_inputs):
     # --- Calendar Styling ---
     style = """
     <style>
+        .calendar-container {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            padding: 10px;
+            border-radius: 8px;
+            background-color: #F8F9FA;
+            border: 1px solid #E1E4E8;
+        }
         .calendar-grid {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
-            grid-template-rows: repeat(5, 1fr);
-            gap: 4px;
-            width: auto;
-            margin: auto;
+            gap: 5px;
+            margin-bottom: 10px;
         }
         .calendar-day-box {
-            width: 18px;
-            height: 18px;
-            border-radius: 3px;
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
             border: 1px solid rgba(0,0,0,0.05);
-            margin: auto;
+            transition: transform 0.2s ease-in-out;
+        }
+        .calendar-day-box:hover {
+            transform: scale(1.1);
+        }
+        .calendar-legend {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            font-size: 12px;
+            color: #586069;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-left: 15px;
+        }
+        .legend-color-box {
+            width: 15px;
+            height: 15px;
+            border-radius: 3px;
+            margin-right: 5px;
         }
     </style>
     """
@@ -89,7 +115,7 @@ def generate_calendar_html(today, dates_with_inputs):
     # Go back 4 full weeks from the start of this week to get 5 weeks in total
     start_date = start_of_week - dt.timedelta(weeks=4)
 
-    calendar_html = style + "<div class='calendar-grid'>"
+    calendar_html = style + "<div class='calendar-container'><div class='calendar-grid'>"
 
     for i in range(35):
         day = start_date + dt.timedelta(days=i)
@@ -99,14 +125,41 @@ def generate_calendar_html(today, dates_with_inputs):
         if count == 0:
             day_color = "#EBEDF0" # Light Grey
         elif 1 <= count <= 2:
-            day_color = "#9BE9A8" # Light Green
+            day_color = "#C6E48B" # Light Green
         elif 3 <= count <= 4:
-            day_color = "#40C463" # Medium Green
+            day_color = "#7BC96F" # Medium Green
+        elif 5 <= count <= 6:
+            day_color = "#239A3B" # Dark Green
         else:
-            day_color = "#216E39" # Dark Green
+            day_color = "#196127" # Darkest Green
         
-        title_text = f"{count} inputs on {date_str}" if count else f"No inputs on {date_str}"
+        title_text = f"{count} contribution{'s' if count != 1 else ''} on {day.strftime('%b %d, %Y')}"
         calendar_html += f"<div class='calendar-day-box' title='{title_text}' style='background-color: {day_color};'></div>"
+    
+    calendar_html += "</div>"
+
+    # Legend
+    calendar_html += """
+    <div class='calendar-legend'>
+        <span>Less</span>
+        <div class='legend-item'>
+            <div class='legend-color-box' style='background-color: #EBEDF0;'></div>
+        </div>
+        <div class='legend-item'>
+            <div class='legend-color-box' style='background-color: #C6E48B;'></div>
+        </div>
+        <div class='legend-item'>
+            <div class='legend-color-box' style='background-color: #7BC96F;'></div>
+        </div>
+        <div class='legend-item'>
+            <div class='legend-color-box' style='background-color: #239A3B;'></div>
+        </div>
+        <div class='legend-item'>
+            <div class='legend-color-box' style='background-color: #196127;'></div>
+        </div>
+        <span>More</span>
+    </div>
+    """
     
     calendar_html += "</div>"
     return calendar_html
@@ -278,19 +331,19 @@ with st.sidebar:
         .stats-grid { 
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
+            gap: 8px;
             width: 100%; 
             margin-bottom: 20px; 
         }
         .stat-item { 
             text-align: center; 
             background-color: #f0f2f6;
-            padding: 8px;
-            border-radius: 10px;
+            padding: 5px;
+            border-radius: 8px;
         }
         .stat-count { 
             font-weight: bold; 
-            font-size: 20px; 
+            font-size: 18px; 
         }
         .stat-label {
             font-size: 12px;
@@ -304,9 +357,6 @@ with st.sidebar:
             display: flex;
             justify-content: center;
             margin-bottom: 15px;
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-            padding: 10px;
         }
         .motivational-text {
             text-align: center; 
@@ -638,7 +688,7 @@ with tab4:
 with tab5:
     st.header("Manual Newsletter Trigger")
     st.write("Click the button below to trigger a newsletter send to your own email address.")
-    st.warning("Note: This requires SMTP environment variables to be set correctly in your project's `.env` file (e.g., `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `NEWSLETTER_SENDER_EMAIL`).", icon="⚠️")
+    st.warning("Note: This requires SMTP environment variables to be set correctly in your project's `.env` file (e.g., `SMTP_HOST`, `SMTP_PORT`, `SMTP_PASSWORD`).", icon="⚠️")
 
     if st.button("Send Newsletter Now", key="send_newsletter_btn"):
         with st.spinner("Sending newsletter..."):
