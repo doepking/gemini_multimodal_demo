@@ -4,6 +4,10 @@ import logging
 import datetime as dt
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -74,7 +78,12 @@ def _send_email(subject, html_body, to_email, creds):
     message.attach(MIMEText(html_body, "html"))
 
     try:
-        port = int(creds["smtp_port"])
+        try:
+            port = int(creds["smtp_port"])
+        except (ValueError, TypeError):
+            logger.error(f"Invalid SMTP_PORT: {creds['smtp_port']}. Must be an integer.")
+            return False
+            
         host = creds["smtp_host"]
         user = creds["smtp_user"]
         password = creds["smtp_password"]
