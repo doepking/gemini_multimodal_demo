@@ -313,7 +313,7 @@ with st.sidebar:
     st.markdown(
         f"""
         <div class="profile-container">
-            <img src="{st.user.picture}" class="profile-picture">
+            <img src="{st.user.picture}&v={st.session_state.counter}" class="profile-picture">
             <div class="username">{st.user.name}</div>
             <div class="stats-grid">
                 <div class="stat-item log-stats">
