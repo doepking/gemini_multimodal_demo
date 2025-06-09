@@ -58,52 +58,64 @@ if 'edit_background' not in st.session_state:
     st.session_state.edit_background = False
 
 # --- Helper Functions ---
-def generate_calendar_html(start_date, end_date, dates_with_inputs):
-    """Generates a more UI-friendly HTML for the activity calendar."""
-
+def generate_calendar_html(today, dates_with_inputs):
+    """Generates a more UI-friendly HTML for the activity calendar for the last 30 days."""
+    
     # --- Calendar Styling ---
     style = """
     <style>
-        .calendar-container {
-            display: grid;
-            grid-template-columns: repeat(53, 12px); /* 53 weeks */
-            grid-template-rows: repeat(7, 12px); /* 7 days */
-            grid-auto-flow: column;
-            gap: 2px;
+        .calendar-table {
+            border-collapse: collapse;
+            width: 100%;
             margin: auto;
         }
-        .calendar-day {
-            width: 12px;
-            height: 12px;
-            border-radius: 2px;
+        .calendar-table th, .calendar-table td {
+            text-align: center;
+            padding: 5px;
+            width: 14.28%;
+        }
+        .calendar-day-box {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
             border: 1px solid rgba(0,0,0,0.05);
+            margin: auto;
         }
     </style>
     """
 
-    calendar_html = style + "<div class='calendar-container'>"
-    total_days = (end_date - start_date).days + 1
+    # Start of the week for today
+    start_of_week = today - dt.timedelta(days=today.weekday())
+    # Go back 4 full weeks from the start of this week to get 5 weeks in total
+    start_date = start_of_week - dt.timedelta(weeks=4)
 
-    # Create a list of all days to be displayed
-    all_dates = [start_date + dt.timedelta(days=i) for i in range(total_days)]
+    calendar_html = style + "<table class='calendar-table'><thead><tr>"
+    days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    for day in days_of_week:
+        calendar_html += f"<th>{day}</th>"
+    calendar_html += "</tr></thead><tbody>"
 
-    for day in all_dates:
-        date_str = day.strftime("%Y-%m-%d")
-        count = dates_with_inputs.get(date_str, 0)
+    for week in range(5):
+        calendar_html += "<tr>"
+        for day_of_week in range(7):
+            day = start_date + dt.timedelta(weeks=week, days=day_of_week)
+            date_str = day.strftime("%Y-%m-%d")
+            count = dates_with_inputs.get(date_str, 0)
 
-        if count == 0:
-            day_color = "#EBEDF0" # Light Grey
-        elif 1 <= count <= 2:
-            day_color = "#9BE9A8" # Light Green
-        elif 3 <= count <= 4:
-            day_color = "#40C463" # Medium Green
-        else:
-            day_color = "#216E39" # Dark Green
-
-        title_text = f"{count} inputs on {date_str}" if count else f"No inputs on {date_str}"
-        calendar_html += f"<div class='calendar-day' title='{title_text}' style='background-color: {day_color};'></div>"
-
-    calendar_html += "</div>"
+            if count == 0:
+                day_color = "#EBEDF0" # Light Grey
+            elif 1 <= count <= 2:
+                day_color = "#9BE9A8" # Light Green
+            elif 3 <= count <= 4:
+                day_color = "#40C463" # Medium Green
+            else:
+                day_color = "#216E39" # Dark Green
+            
+            title_text = f"{count} inputs on {date_str}" if count else f"No inputs on {date_str}"
+            calendar_html += f"<td><div class='calendar-day-box' title='{title_text}' style='background-color: {day_color};'></div></td>"
+        calendar_html += "</tr>"
+    
+    calendar_html += "</tbody></table>"
     return calendar_html
 
 def calculate_task_stats(tasks):
@@ -140,8 +152,7 @@ def calculate_activity_data(input_log, tasks):
     dates_with_counts = df.groupby('date').size().to_dict()
     dates_with_counts_str_keys = {k.strftime("%Y-%m-%d"): v for k, v in dates_with_counts.items()}
 
-    start_date_cal = today - dt.timedelta(days=365)
-    calendar_html = generate_calendar_html(start_date_cal, today, dates_with_counts_str_keys)
+    calendar_html = generate_calendar_html(today, dates_with_counts_str_keys)
 
     unique_dates = sorted(df['date'].unique())
     
