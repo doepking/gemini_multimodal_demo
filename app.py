@@ -68,7 +68,7 @@ def generate_calendar_html(today, dates_with_inputs):
             display: grid;
             grid-template-columns: repeat(7, 1fr);
             grid-template-rows: repeat(5, 1fr);
-            gap: 4px;
+            gap: 2px;
             width: 100%;
             margin: auto;
         }
