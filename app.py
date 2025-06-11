@@ -803,22 +803,32 @@ with tab2:
         # Sort logs by timestamp descending
         sorted_logs = sorted(st.session_state.input_log, key=lambda x: x.created_at, reverse=True)
 
+        # Convert list of ORM objects to a list of dictionaries for DataFrame creation
+        logs_for_df = [
+            {
+                "id": log.id,
+                "created_at": log.created_at,
+                "content": log.content,
+                "category": log.category
+            }
+            for log in sorted_logs
+        ]
+
         # Use a data editor to allow for changes
         edited_logs_df = st.data_editor(
-            pd.DataFrame(sorted_logs),
+            pd.DataFrame(logs_for_df),
             num_rows="dynamic",
             hide_index=True,
             use_container_width=True,
             key="data_editor_logs",
             column_config={
+                "id": st.column_config.Column("ID", disabled=True),
                 "created_at": st.column_config.Column("Timestamp", disabled=True),
                 "content": st.column_config.Column("Content"),
                 "category": st.column_config.Column("Category"),
-                "details": st.column_config.Column("Details"),
-                "content_preview": None, # Hide the preview column
             },
             # Reorder columns for better display
-            column_order=["created_at", "content", "category", "details"]
+            column_order=["id", "created_at", "content", "category"]
         )
 
         if st.button("Save Log Changes"):
