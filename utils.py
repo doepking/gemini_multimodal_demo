@@ -285,7 +285,7 @@ def update_background_info_and_persist_impl(background_update_json: str, user: U
     try:
         update_data = json.loads(background_update_json)
         
-        background_info = db.query(BackgroundInfo).filter(BackgroundInfo.user_id == user.id).first()
+        background_info = db.query(BackgroundInfo).filter(BackgroundInfo.user_id == user.id).order_by(BackgroundInfo.created_at.desc()).first()
         if not background_info:
             background_info = BackgroundInfo(user_id=user.id, content={})
             db.add(background_info)
@@ -335,12 +335,20 @@ def update_tasks_and_persist(tasks_list: list, user: User):
     """App-facing function to update the entire task list and persist it."""
     db = next(get_db())
     
+    submitted_task_ids = {task_data['id'] for task_data in tasks_list if 'id' in task_data}
+    current_task_ids_db = {task.id for task in db.query(Task).filter(Task.user_id == user.id).all()}
+    
+    ids_to_delete = current_task_ids_db - submitted_task_ids
+    if ids_to_delete:
+        db.query(Task).filter(Task.id.in_(ids_to_delete), Task.user_id == user.id).delete(synchronize_session=False)
+
     for task_data in tasks_list:
-        task = db.query(Task).filter(Task.id == task_data['id'], Task.user_id == user.id).first()
-        if task:
-            task.description = task_data['description']
-            task.status = task_data['status']
-            task.due_date = task_data['deadline']
+        if 'id' in task_data:
+            task = db.query(Task).filter(Task.id == task_data['id'], Task.user_id == user.id).first()
+            if task:
+                task.description = task_data['description']
+                task.status = task_data['status']
+                task.due_date = task_data['deadline']
     
     db.commit()
     return {"status": "success", "message": "Tasks updated successfully."}
@@ -349,11 +357,19 @@ def update_input_log_and_persist(log_list: list, user: User):
     """App-facing function to update the entire input log and persist it."""
     db = next(get_db())
 
+    submitted_log_ids = {log_data['id'] for log_data in log_list if 'id' in log_data}
+    current_log_ids_db = {log.id for log in db.query(TextInput).filter(TextInput.user_id == user.id).all()}
+
+    ids_to_delete = current_log_ids_db - submitted_log_ids
+    if ids_to_delete:
+        db.query(TextInput).filter(TextInput.id.in_(ids_to_delete), TextInput.user_id == user.id).delete(synchronize_session=False)
+
     for log_data in log_list:
-        log = db.query(TextInput).filter(TextInput.id == log_data['id'], TextInput.user_id == user.id).first()
-        if log:
-            log.content = log_data['original_content']
-            log.category = log_data['category']
+        if 'id' in log_data:
+            log = db.query(TextInput).filter(TextInput.id == log_data['id'], TextInput.user_id == user.id).first()
+            if log:
+                log.content = log_data['content']
+                log.category = log_data['category']
 
     db.commit()
     return {"status": "success", "message": "Input log updated successfully."}
@@ -371,9 +387,9 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     input_log = session_state.get('input_log', [])
     tasks = session_state.get('tasks', [])
     current_bg_info_str = json.dumps(background_info, indent=2)
-    recent_logs_preview = [log.get('content_preview', 'Log entry') for log in input_log[-5:]] # Last 5 logs
+    recent_logs_preview = [log.content[:100] + "..." if len(log.content) > 100 else log.content for log in input_log[-5:]] # Last 5 logs
     recent_logs_str = "\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
-    tasks_preview = [f"ID: {task['id']}, Desc: {task['description']}, Status: {task['status']}" for task in tasks]
+    tasks_preview = [f"ID: {task.id}, Desc: {task.description}, Status: {task.status}" for task in tasks]
     tasks_str = "\n- ".join(tasks_preview) if tasks_preview else "No tasks."
     
     now = dt.datetime.now(dt.timezone.utc)
@@ -617,9 +633,9 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         
         # Combine initial text with messages from all function calls
         if ui_update_messages:
-            aggregated_ui_messages = "\n".join(ui_update_messages)
+            aggregated_ui_messages = "  \n".join(ui_update_messages)
             if final_text_response_to_user:
-                final_text_response_to_user += f"\n\n{aggregated_ui_messages}"
+                final_text_response_to_user += f"  \n  \n{aggregated_ui_messages}"
             else:
                 final_text_response_to_user = aggregated_ui_messages
         elif not final_text_response_to_user: # Fallback if no initial text and no UI messages

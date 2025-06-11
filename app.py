@@ -165,18 +165,9 @@ if "last_audio_duration" not in st.session_state:
     st.session_state.audio_recordings = []
     st.session_state.counter = 0 # Used for unique keys for recorder/input
 
-# --- Initialize Session State from Files ---
-if "conversation_history" not in st.session_state:
-    st.session_state.conversation_history = start_new_chat()
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "last_audio_duration" not in st.session_state:
-    st.session_state.last_audio_duration = -1.0
-    st.session_state.audio_recordings = []
-    st.session_state.counter = 0 # Used for unique keys for recorder/input
-
-# Initialize session state for input log, background info, and tasks from files
-if hasattr(st, 'user') and st.user.is_logged_in:
+# --- Helper Functions ---
+def load_all_data():
+    """Loads all data from the database into the session state."""
     db = next(get_db())
     try:
         user = get_or_create_user(db, st.user.email, st.user.name)
@@ -184,13 +175,24 @@ if hasattr(st, 'user') and st.user.is_logged_in:
         st.session_state.input_log = load_input_log(db, user.id)
         st.session_state.background_info = load_background_info(db, user.id)
         st.session_state.tasks = load_tasks(db, user.id)
+        logger.info("Session state refreshed from database.")
     finally:
         db.close()
 
+# --- Initialize Session State and Data ---
+if hasattr(st, 'user') and st.user.is_logged_in:
+    load_all_data() # Always load fresh data for logged-in users on each run
+
     if 'edit_background' not in st.session_state:
         st.session_state.edit_background = False
+else:
+    # Ensure data is cleared if user logs out
+    st.session_state.user = None
+    st.session_state.input_log = []
+    st.session_state.tasks = []
+    st.session_state.background_info = {}
 
-# --- Helper Functions ---
+
 def generate_calendar_html(today, dates_with_inputs):
     """Generates a more UI-friendly HTML for the activity calendar for the last 30 days."""
     
