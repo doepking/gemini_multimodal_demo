@@ -185,8 +185,8 @@ def generate_calendar_html(today, dates_with_inputs):
             margin-bottom: 10px;
         }
         .calendar-day-box {
-            width: 18px;
-            height: 18px;
+            width: 16px;
+            height: 16px;
             border-radius: 3px;
             border: 1px solid rgba(0,0,0,0.05);
             transition: transform 0.2s ease-in-out;
@@ -200,14 +200,15 @@ def generate_calendar_html(today, dates_with_inputs):
             align-items: center;
             font-size: 12px;
             color: #586069;
+            gap: 8px;
         }
         .legend-colors {
             display: flex;
             gap: 4px;
         }
         .legend-color-box {
-            width: 18px;
-            height: 18px;
+            width: 16px;
+            height: 16px;
             border-radius: 3px;
         }
         @media (max-width: 640px) {
