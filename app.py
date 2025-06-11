@@ -881,7 +881,8 @@ with tab3:
                 "description": task.description,
                 "status": task.status,
                 "deadline": task.deadline,
-                "created_at": task.created_at
+                "created_at": task.created_at,
+                "completed_at": task.completed_at
             }
             for task in sorted_tasks
         ]
@@ -889,9 +890,9 @@ with tab3:
         # Convert list of dicts to DataFrame for editing
         df_tasks = pd.DataFrame(tasks_for_df)
         # Ensure columns are in a consistent order
-        df_tasks = df_tasks[["id", "description", "status", "deadline", "created_at"]]
+        df_tasks = df_tasks[["id", "created_at", "description", "status", "deadline", "completed_at"]]
         df_tasks["deadline"] = pd.to_datetime(df_tasks["deadline"])
-        df_tasks.rename(columns={"id": "ID", "description": "Description", "status": "Status", "deadline": "Deadline", "created_at": "Created At"}, inplace=True)
+        df_tasks.rename(columns={"id": "ID", "description": "Description", "status": "Status", "deadline": "Deadline", "created_at": "Created At", "completed_at": "Completed At"}, inplace=True)
 
         edited_tasks_df = st.data_editor(
             df_tasks,
@@ -900,12 +901,20 @@ with tab3:
             use_container_width=True,
             key="data_editor_tasks",
             column_config={
-                "ID": st.column_config.Column("ID", disabled=True),
-                "Created At": st.column_config.Column("Created At", disabled=True),
+                "ID": None,
+                "Created At": st.column_config.DatetimeColumn(
+                    "Created At",
+                    format="YYYY-MM-DD HH:mm:ss",
+                    disabled=True
+                ),
                 "Deadline": st.column_config.DatetimeColumn(
                     "Deadline",
                     format="YYYY-MM-DD HH:mm:ss",
-                    required=True,
+                ),
+                "Completed At": st.column_config.DatetimeColumn(
+                    "Completed At",
+                    format="YYYY-MM-DD HH:mm:ss",
+                    disabled=True
                 ),
                 "Status": st.column_config.SelectboxColumn(
                     "Status",
@@ -913,12 +922,13 @@ with tab3:
                     required=True
                 ),
             },
+            column_order=["Created At", "Description", "Status", "Deadline", "Completed At"]
         )
 
         if st.button("Save Task Changes"):
             # Convert deadline back to ISO string before saving
-            edited_tasks_df['Deadline'] = edited_tasks_df['Deadline'].apply(lambda x: x.isoformat())
-            updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Deadline": "deadline", "Created At": "created_at"}).to_dict('records')
+            edited_tasks_df['Deadline'] = edited_tasks_df['Deadline'].apply(lambda x: x.isoformat() if pd.notna(x) else None)
+            updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Deadline": "deadline", "Created At": "created_at", "Completed At": "completed_at"}).to_dict('records')
             result = update_tasks_and_persist(updated_tasks, st.session_state.user)
             st.success(result.get("message", "Task changes saved!"))
             st.rerun()
