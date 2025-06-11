@@ -872,9 +872,22 @@ with tab3:
         st.info("No tasks yet. Add one below or ask the chat assistant to add one for you!")
     else:
         # Sort tasks by creation date descending
-        sorted_tasks = sorted(st.session_state.tasks, key=lambda x: x.get('created_at', ''), reverse=True)
+        sorted_tasks = sorted(st.session_state.tasks, key=lambda x: x.created_at, reverse=True)
+        
+        # Convert list of ORM objects to a list of dictionaries for DataFrame creation
+        tasks_for_df = [
+            {
+                "id": task.id,
+                "description": task.description,
+                "status": task.status,
+                "deadline": task.deadline,
+                "created_at": task.created_at
+            }
+            for task in sorted_tasks
+        ]
+
         # Convert list of dicts to DataFrame for editing
-        df_tasks = pd.DataFrame(sorted_tasks)
+        df_tasks = pd.DataFrame(tasks_for_df)
         # Ensure columns are in a consistent order
         df_tasks = df_tasks[["id", "description", "status", "deadline", "created_at"]]
         df_tasks["deadline"] = pd.to_datetime(df_tasks["deadline"])
