@@ -54,7 +54,7 @@ class Task(Base):
             raise ValueError(f"Invalid status: {status}. Allowed values are: {', '.join(allowed_statuses)}")
         return status
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    due_date = Column(DateTime(timezone=True), nullable=True)
+    deadline = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User", back_populates="tasks")

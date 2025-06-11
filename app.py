@@ -308,8 +308,22 @@ def calculate_task_stats(tasks):
     """Calculates statistics for tasks."""
     if not tasks:
         return {"open_tasks": 0, "completed_tasks": 0}
+
+    # Convert tasks (which are likely ORM objects) to a list of dicts
+    tasks_for_df = [
+        {
+            "id": task.id,
+            "description": task.description,
+            "status": task.status,
+            "deadline": task.deadline,
+            "created_at": task.created_at
+        }
+        for task in tasks
+    ]
     
-    df = pd.DataFrame(tasks)
+    df = pd.DataFrame(tasks_for_df)
+    
+    # Now, the 'status' column should exist
     open_tasks = df[df['status'].isin(['open', 'in_progress'])].shape[0]
     completed_tasks = df[df['status'] == 'completed'].shape[0]
     
