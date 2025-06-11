@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from sqlalchemy.orm.attributes import flag_modified
 
 from database import SessionLocal
-from models import User, TextInput, BackgroundInfo, Task
+from models import User, TextInput, BackgroundInfo, Task, NewsletterLog
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -714,3 +714,30 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         logger.info(f"Aggregated UI update message: {ui_update_message}")
 
     return {"text_response": final_text_response_to_user, "ui_message": ui_update_message}
+
+def purge_user_data(user_id: int):
+    """
+    Deletes all data associated with a user ID from the database.
+    """
+    db = next(get_db())
+    try:
+        # Delete all tasks, background info, text inputs, and newsletter logs for the user
+        db.query(NewsletterLog).filter(NewsletterLog.user_id == user_id).delete(synchronize_session=False)
+        db.query(Task).filter(Task.user_id == user_id).delete(synchronize_session=False)
+        db.query(BackgroundInfo).filter(BackgroundInfo.user_id == user_id).delete(synchronize_session=False)
+        db.query(TextInput).filter(TextInput.user_id == user_id).delete(synchronize_session=False)
+        
+        # Delete the user
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            db.delete(user)
+        
+        db.commit()
+        logger.info(f"All data for user ID {user_id} has been purged.")
+        return True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error purging data for user ID {user_id}: {e}", exc_info=True)
+        return False
+    finally:
+        db.close()

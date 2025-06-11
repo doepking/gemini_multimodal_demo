@@ -9,9 +9,44 @@ from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from database import SessionLocal
 from models import User, NewsletterLog
+from google import genai
+from google.genai import types
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Gemini API initialization
+client = genai.Client(api_key=os.environ.get("LLM_API_KEY"))
+MODEL_NAME = "gemini-2.5-flash-preview-05-20"
+# Safety settings
+safety_settings = [
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
+]
+
+def _get_newsletter_content_from_llm(prompt):
+    """Generates content from the LLM for the newsletter."""
+    try:
+        generation_config = types.GenerateContentConfig(
+            max_output_tokens=2048,
+            temperature=0.7,
+        )
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            generation_config=generation_config,
+            safety_settings=safety_settings,
+        )
+        if response.candidates:
+            return response.candidates[0].content.parts[0].text
+        else:
+            return "<li>No insight generated.</li>"
+    except Exception as e:
+        logger.error(f"LLM generation error for newsletter: {e}", exc_info=True)
+        return "<li>Error generating content.</li>"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -56,13 +91,14 @@ def _save_newsletter_log(user_id, content_li_items):
     db.add(log_entry)
     db.commit()
 
-def _generate_html_content(user_id, user_email, user_name, input_log, background_info, tasks):
+def _generate_html_content(user_id, user_email, user_name, session_state):
     """
     Generates the HTML content for the newsletter using a sophisticated, multi-part prompt.
     """
-    from utils import get_chat_response
-
     greeting_name = user_name.split()[0] if user_name else user_email.split('@')[0]
+    input_log = session_state.get('input_log', [])
+    background_info = session_state.get('background_info', {})
+    tasks = session_state.get('tasks', [])
     
     previous_newsletters = _load_previous_newsletters(user_id)
     previous_newsletters_context = "\n\n".join([log.content for log in previous_newsletters])
@@ -94,8 +130,7 @@ def _generate_html_content(user_id, user_email, user_name, input_log, background
     """
 
     # We pass an empty conversation history as per the user's request
-    response_data = get_chat_response([], {}, user_prompt=prompt)
-    combined_content_li_items = response_data.get("text_response", "<li>No insight generated.</li>")
+    combined_content_li_items = _get_newsletter_content_from_llm(prompt)
 
     # Save the log
     _save_newsletter_log(user_id, combined_content_li_items)
@@ -201,18 +236,13 @@ def send_newsletter_for_user(user_id, user_email, user_name, session_state):
     """
     logger.info(f"Preparing to send newsletter to {user_email}.")
 
-    # Load the data required by the newsletter sender from session_state
-    input_log = session_state.get('input_log', [])
-    background_info = session_state.get('background_info', {})
-    tasks = session_state.get('tasks', [])
-
     creds = _get_email_credentials(user_email)
     if not creds["smtp_password"]:
         return {"status": "error", "message": "SMTP_PASSWORD environment variable not set."}
 
     subject = f"Your State Analysis & Next Steps - {dt.date.today().strftime('%B %d, %Y')}"
     
-    html_content = _generate_html_content(user_id, user_email, user_name, input_log, background_info, tasks)
+    html_content = _generate_html_content(user_id, user_email, user_name, session_state)
 
     success = _send_email(subject, html_content, user_email, creds)
 

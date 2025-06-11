@@ -335,8 +335,9 @@ def calculate_activity_data(input_log, tasks):
     today = dt.date.today()
 
     if not input_log:
+        calendar_html = generate_calendar_html(today, {})
         return {
-            "calendar_html": "<div>No activity.</div>", 
+            "calendar_html": calendar_html, 
             "current_streak": 0,
             "longest_streak": 0,
             "todays_logs": 0,
@@ -643,6 +644,51 @@ with st.sidebar:
     if st.button("Logout", key="logout_button", use_container_width=True):
         st.logout()
         st.rerun()
+    
+    st.markdown("---") # Separator
+
+    # --- Data Deletion Section ---
+    with st.expander("⚠️ Danger Zone", expanded=False):
+        if 'confirm_purge' not in st.session_state:
+            st.session_state.confirm_purge = False
+
+        if not st.session_state.confirm_purge:
+            if st.button("Withdraw Consent & Purge Data", key="purge_initial", type="primary", use_container_width=True):
+                    st.session_state.confirm_purge = True
+                    st.rerun()
+        else:
+            st.warning("This action is irreversible. All your data (inputs, tasks, background info, account) will be permanently deleted.")
+            if st.button("Confirm Purge", key="purge_confirm", type="primary", use_container_width=True):
+                try:
+                    db = next(get_db())
+                    user = get_or_create_user(db, st.user.email, st.user.name)
+                    if user:
+                        logger.info(f"Initiating data purge for user: {user.email}")
+                        from utils import purge_user_data
+                        purge_success = purge_user_data(user.id)
+                        if purge_success:
+                            logger.info(f"Main app data purge successful for user: {user.email}")
+                            
+                            # Proceed with logout and session reset
+                            st.session_state.consent_given = None # Reset consent state
+                            st.session_state.confirm_purge = False # Reset confirmation
+                            st.logout() # Log the user out
+                        else:
+                            logger.error(f"Main app data purge failed for user: {user.email}")
+                            st.error("An error occurred during data deletion. Please contact support.")
+                            st.session_state.confirm_purge = False # Reset confirmation on error
+                    else:
+                        logger.warning(f"Attempted purge for non-existent user: {st.user.email}")
+                        st.error("User not found.")
+                        st.session_state.confirm_purge = False
+                except Exception as e:
+                    logger.error(f"Exception during data purge confirmation for {st.user.email}: {e}", exc_info=True)
+                    st.error("An unexpected error occurred during data deletion.")
+                    st.session_state.confirm_purge = False
+                finally:
+                    if 'db' in locals() and db:
+                        db.close()
+                    st.rerun()
     
     st.markdown("---") # Separator
     # Link to Privacy Policy and Impressum in sidebar as well
