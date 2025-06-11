@@ -182,6 +182,20 @@ This intelligent, multi-faceted approach allows the application to act as a true
 -   Conversation history, input logs, and background information are stored in the Streamlit session state.
 -   The Docker image uses a slim Python base image and installs `ffmpeg` for audio processing.
 
+## Limitations
+
+-   This is a demo and may not handle all edge cases or complex conversation scenarios.
+-   The audio processing is limited to `.wav` files.
+-   Error handling is minimal.
+-   The LLM's ability to perfectly categorize logs or structure background information from free text is dependent on the model's capabilities and the clarity of user input.
+
+## Future Enhancements
+
+-   Improve error handling and robustness.
+-   Support additional audio formats.
+-   Implement more sophisticated conversation management.
+-   Expand function calling capabilities with more tools.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues or pull requests.
