@@ -167,6 +167,4 @@ cython_debug/
 # Project specific
 data*
 *.json
-deploy.sh
-build.sh
 .streamlit/secrets.toml
