@@ -249,6 +249,26 @@ def manage_tasks_and_persist_impl(action: str, user: User, task_description: str
     else:
         return {"status": "error", "message": f"Unknown task action: {action}"}
 
+def deep_update(source, overrides):
+    """
+    Recursively update a dictionary.
+    """
+    for key, value in overrides.items():
+        if isinstance(value, dict) and value:
+            # get the existing dict or a new one
+            existing_dict = source.get(key, {})
+            if not isinstance(existing_dict, dict):
+                existing_dict = {}
+            source[key] = deep_update(existing_dict, value)
+        elif isinstance(value, list) and value:
+            if key not in source or not isinstance(source.get(key), list):
+                source[key] = []
+            source[key].extend(item for item in value if item not in source[key])
+        else:
+            source[key] = value
+    return source
+
+
 def add_log_entry_and_persist_impl(text_input: str, user: User, category_suggestion: str = None):
     """
     Core logic to process and log text input to the database.
@@ -290,17 +310,13 @@ def update_background_info_and_persist_impl(background_update_json: str, user: U
             background_info = BackgroundInfo(user_id=user.id, content={})
             db.add(background_info)
 
-        current_content = background_info.content or {}
+        # Make a copy to ensure SQLAlchemy detects the change
+        current_content = (background_info.content or {}).copy()
         
-        for key, value in update_data.items():
-            if key in current_content and isinstance(current_content[key], list) and isinstance(value, list):
-                current_content[key].extend(item for item in value if item not in current_content[key])
-            elif key in current_content and isinstance(current_content[key], dict) and isinstance(value, dict):
-                current_content[key].update(value)
-            else:
-                current_content[key] = value
+        # Recursively update the content
+        updated_content = deep_update(current_content, update_data)
         
-        background_info.content = current_content
+        background_info.content = updated_content
         db.commit()
         db.refresh(background_info)
         
