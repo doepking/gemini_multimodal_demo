@@ -4,3 +4,4 @@ fsspec
 gcsfs
 google-genai
 streamlit-audiorecorder
+Authlib>=1.3.2

@@ -21,6 +21,9 @@ AI through both text and audio input. This version introduces **input logging** 
 relevant responses.
 -   **Streamlit Interface:** A user-friendly web interface built with Streamlit, now featuring tabs for Chat, Input Log, Tasks, and Background Info for organized interaction.
 -   **Dockerized Deployment:** The application is containerized using Docker for simple deployment and portability.
+-   **Newsletter Tab:** A new "Newsletter" tab allows users to view past newsletters and trigger new ones.
+-   **Newsletter "Nudge Engine":** A backend service that can be triggered to send out newsletters based on user activity and preferences.
+-   **User Authentication:** Secure user authentication is implemented using Google OAuth, ensuring that only authorized users can access the application.
 
 ## Prerequisites
 
@@ -111,9 +114,18 @@ The application interface is organized into three main tabs:
     -   The LLM can also update this information via function calling during a chat.
     -   Background info is saved to `data/background_information.json`.
 
+-   **Newsletter Tab:**
+    -   View a list of previously sent newsletters.
+    -   Manually trigger the "nudge engine" to generate and send a new newsletter.
+
+## Authentication
+
+Before accessing the main application, users are required to authenticate using their Google account. This is handled automatically when you first visit the application.
+
 ## Code Overview
 
--   **`app.py`:** Contains the Streamlit application logic, including UI elements for the chat, input log, tasks, and background info tabs. It manages audio recording, chat input handling, and form submissions. It calls the appropriate `*_and_persist` functions from `utils.py` whenever data is modified through the UI.
+-   **`app.py`:** Contains the Streamlit application logic, including UI elements for the chat, input log, tasks, and background info tabs. It manages audio recording, chat input handling, and form submissions. It calls the appropriate `*_and_persist` functions from `utils.py` whenever data is modified through the UI. It also handles user authentication.
+-   **`newsletter.py`:** Contains the logic for the newsletter feature, including generating content and sending emails.
 -   **`utils.py`:** A refactored module that cleanly separates responsibilities.
     -   **App-Facing Functions (`*_and_persist`):** A set of functions (`add_log_entry_and_persist`, `update_tasks_and_persist`, etc.) designed to be called directly from the `app.py` UI. Each function handles a specific data modification (like adding a task or updating the entire log) and ensures the changes are saved to a file.
     -   **Core Implementation Functions (`*_impl`):** The internal logic for processing data. These are called by the app-facing functions or by the LLM's function-calling mechanism.

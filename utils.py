@@ -655,3 +655,4 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         logger.info(f"Aggregated UI update message: {ui_update_message}")
 
     return {"text_response": final_text_response_to_user, "ui_message": ui_update_message}
+
