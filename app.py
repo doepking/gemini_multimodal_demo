@@ -328,7 +328,16 @@ def calculate_activity_data(input_log, tasks):
             **task_stats
         }
 
-    df = pd.DataFrame(input_log)
+    df = pd.DataFrame([
+        {
+            "id": log.id,
+            "user_id": log.user_id,
+            "content": log.content,
+            "category": log.category,
+            "created_at": log.created_at
+        }
+        for log in input_log
+    ])
     df['date'] = pd.to_datetime(df['created_at']).dt.date
     
     todays_logs = df[df['date'] == today].shape[0]
