@@ -656,28 +656,3 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
 
     return {"text_response": final_text_response_to_user, "ui_message": ui_update_message}
 
-
-# --- Newsletter Trigger Function ---
-from newsletter import send_newsletter_for_user
-
-def trigger_newsletter_send(user_email, user_name, session_state):
-    """
-    A wrapper function to trigger the newsletter sending process for a user.
-    It loads the necessary data from session_state and calls the core sending function.
-    """
-    logger.info(f"Utils is triggering newsletter for {user_email}")
-    
-    # Load the data required by the newsletter sender from session_state
-    input_log = session_state.get('input_log', [])
-    background_info = session_state.get('background_info', {})
-    tasks = session_state.get('tasks', [])
-
-    # Call the dedicated newsletter sending function
-    result = send_newsletter_for_user(
-        user_email=user_email,
-        user_name=user_name,
-        input_log=input_log,
-        background_info=background_info,
-        tasks=tasks
-    )
-    return result

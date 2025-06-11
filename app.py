@@ -19,8 +19,8 @@ from utils import (
     load_input_log,
     load_tasks,
     load_background_info,
-    trigger_newsletter_send,
 )
+from newsletter import send_newsletter_for_user
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -697,7 +697,7 @@ with tab5:
 
     if st.button("Send Newsletter Now", key="send_newsletter_btn"):
         with st.spinner("Sending newsletter..."):
-            result = trigger_newsletter_send(
+            result = send_newsletter_for_user(
                 user_email=st.user.email,
                 user_name=st.user.name,
                 session_state=st.session_state

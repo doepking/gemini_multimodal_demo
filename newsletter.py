@@ -86,7 +86,7 @@ def _generate_html_content(user_email, user_name, input_log, background_info, ta
     current_weekday_str = now.strftime('%A')
 
     prompt = f"""
-    You are "The Opportunity Architect," an AI assistant. Your persona is brutally honest, direct, and action-focused.
+    You are "The Opportunity Architect" an AI assistant. Your persona is brutally honest, direct, and action-focused.
     Your goal is to generate a "Current State Analysis & Actionable Next Steps" brief as a string of three to four HTML list items (`<li>...</li>`).
 
     - The first 2-3 `<li>`s must be a cohesive narrative: a "hard truth" insight based on the user's state, followed by a "strategic play" for today.
@@ -208,11 +208,17 @@ def _send_email(subject, html_body, to_email, creds):
         logger.error(f"Failed to send newsletter email to {to_email}: {e}", exc_info=True)
         return False
 
-def send_newsletter_for_user(user_email, user_name, input_log, background_info, tasks):
+def send_newsletter_for_user(user_email, user_name, session_state):
     """
     Main public function to generate and send a newsletter to a single user.
+    It loads the necessary data from session_state and calls the core sending function.
     """
     logger.info(f"Preparing to send newsletter to {user_email}.")
+
+    # Load the data required by the newsletter sender from session_state
+    input_log = session_state.get('input_log', [])
+    background_info = session_state.get('background_info', {})
+    tasks = session_state.get('tasks', [])
 
     creds = _get_email_credentials(user_email)
     if not creds["smtp_password"]:
