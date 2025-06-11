@@ -486,7 +486,7 @@ with st.sidebar:
             margin-bottom: 15px;
             border: 2px solid transparent;
             background-image: linear-gradient(white, white), 
-                              linear-gradient(45deg, #4285F4, #EA4335, #FBBC05, #34A853);
+                              linear-gradient(135deg, #4285F4 25%, #EA4335 50%, #FBBC05 75%, #34A853 100%);
             background-origin: border-box;
             background-clip: content-box, border-box;
             box-shadow: 0 4px 12px rgba(0,0,0,0.25);
