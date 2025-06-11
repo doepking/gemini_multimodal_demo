@@ -204,6 +204,7 @@ def task_to_dict(task: Task) -> dict:
         "status": task.status,
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "deadline": task.deadline.isoformat() if task.deadline else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
     }
 
 def log_entry_to_dict(log_entry: TextInput) -> dict:
@@ -321,9 +322,11 @@ def add_log_entry_and_persist_impl(text_input: str, user: User, category_suggest
     logger.info(f"Input logged: {content_preview}")
     return {"status": "success", "message": f"Log added: '{content_preview}'", "entry": log_entry_to_dict(log_entry)}
 
-def update_background_info_and_persist_impl(background_update_json: str, user: User):
+def update_background_info_and_persist_impl(background_update_json: str, user: User, replace: bool = False):
     """
     Core logic to update background information in the database.
+    If 'replace' is True, the entire content is overwritten.
+    Otherwise, a deep update is performed.
     """
     if user is None:
         logger.error("User not provided to update_background_info_and_persist_impl")
@@ -339,11 +342,13 @@ def update_background_info_and_persist_impl(background_update_json: str, user: U
             background_info = BackgroundInfo(user_id=user.id, content={})
             db.add(background_info)
 
-        # Make a copy to ensure SQLAlchemy detects the change
-        current_content = (background_info.content or {}).copy()
-        
-        # Recursively update the content
-        updated_content = deep_update(current_content, update_data)
+        if replace:
+            # Direct replacement for UI edits
+            updated_content = update_data
+        else:
+            # Recursive update for AI-driven changes
+            current_content = (background_info.content or {}).copy()
+            updated_content = deep_update(current_content, update_data)
         
         background_info.content = updated_content
         flag_modified(background_info, "content")  # Mark the JSON field as modified
@@ -351,7 +356,7 @@ def update_background_info_and_persist_impl(background_update_json: str, user: U
         db.refresh(background_info)
         
         message = "Background information updated."
-        logger.info(f"Background info updated. Current: {background_info.content}")
+        logger.info(f"Background info updated. Replace mode: {replace}. Current: {background_info.content}")
         return {"status": "success", "message": message, "updated_info": background_info.content}
 
     except json.JSONDecodeError:
@@ -369,9 +374,9 @@ def add_log_entry_and_persist(text_input: str, user: User, category_suggestion: 
     """App-facing function to add a log entry and persist it."""
     return add_log_entry_and_persist_impl(text_input, user, category_suggestion)
 
-def update_background_info_and_persist(background_update_json: str, user: User):
+def update_background_info_and_persist(background_update_json: str, user: User, replace: bool = False):
     """App-facing function to update background info and persist it."""
-    return update_background_info_and_persist_impl(background_update_json, user)
+    return update_background_info_and_persist_impl(background_update_json, user, replace=replace)
 
 def add_task_and_persist(task_description: str, user: User, deadline: str = None):
     """App-facing function to add a new task and persist it."""

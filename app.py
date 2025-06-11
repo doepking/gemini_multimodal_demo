@@ -977,7 +977,7 @@ with tab4:
             if submitted:
                 try:
                     # The function expects a JSON string, so this works perfectly
-                    result = update_background_info_and_persist(background_text, st.session_state.user)
+                    result = update_background_info_and_persist(background_text, st.session_state.user, replace=True)
                     if result.get("status") == "success":
                         st.session_state.background_info = result["updated_info"]
                         st.success(result.get("message", "Background information updated!"))
