@@ -7,7 +7,7 @@
 PROJECT_ID="${GCP_PROJECT_ID:-fdap-1337}"
 
 # Image name and tag
-IMAGE_NAME="gemini-multimodal-demo"
+IMAGE_NAME="life-tracker"
 IMAGE_TAG="latest"
 
 # Google Container Registry (GCR) or Artifact Registry path

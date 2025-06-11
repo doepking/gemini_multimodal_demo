@@ -657,7 +657,7 @@ with st.sidebar:
                     st.session_state.confirm_purge = True
                     st.rerun()
         else:
-            st.warning("This action is irreversible. All your data (inputs, tasks, background info, account) will be permanently deleted.")
+            st.warning("This action is irreversible. All your data (inputs, tasks & background info) will be permanently deleted.")
             if st.button("Confirm Purge", key="purge_confirm", type="primary", use_container_width=True):
                 try:
                     db = next(get_db())
@@ -707,13 +707,6 @@ with st.sidebar:
             mime="text/markdown",
             key="sidebar_download_imprint"
         )
-
-st.title("Life Tracker with Gemini AI")
-st.write(
-    "This is an AI-powered assistant to help you track your thoughts, tasks, and background information.  \n"
-    "Interact with the Gemini model via text or audio, and manage your data across the different tabs.  \n"
-    "All data is editable and is persisted locally."
-)
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info", "Newsletter"])
 

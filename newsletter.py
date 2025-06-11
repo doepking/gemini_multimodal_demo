@@ -296,8 +296,8 @@ def send_newsletter_for_user(user_id, user_email, user_name, session_state):
         and_(NewsletterLog.created_at >= start_of_day, NewsletterLog.created_at <= end_of_day)
     ).count()
 
-    if todays_log_count >= 3:
-        logger.info(f"Newsletter limit of 3 reached today for {user_email}. Skipping.")
+    if todays_log_count >= 1:
+        logger.info(f"Newsletter limit of 1 reached today for {user_email}. Skipping.")
         return {"status": "skipped", "message": "Newsletter limit reached for today."}
 
     creds = _get_email_credentials()

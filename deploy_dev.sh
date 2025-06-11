@@ -3,8 +3,8 @@
 # Script to deploy the Gemini Multimodal Demo (Streamlit Frontend) to a DEV environment
 
 # --- Configuration ---
-SERVICE_NAME="gemini-multimodal-demo-dev"
-IMAGE_NAME="gemini-multimodal-demo"
+SERVICE_NAME="life-tracker-d"
+IMAGE_NAME="life-tracker"
 IMAGE_TAG="latest"
 
 # --- Environment File ---
