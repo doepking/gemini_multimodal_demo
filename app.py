@@ -26,8 +26,8 @@ from newsletter import send_newsletter_for_user
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="Gemini Multimodal Demo",
-    page_icon=":speech_balloon:",
+    page_title="AI-enabled Life Tracker",
+    page_icon=":clipboard:",
     layout="wide"
 )
 
@@ -484,16 +484,16 @@ with st.sidebar:
             height: 100px;
             object-fit: cover;
             margin-bottom: 15px;
-            border: 4px solid transparent;
+            border: 2px solid transparent;
             background-image: linear-gradient(white, white), 
-                              radial-gradient(circle at top left, #fdc468, #df4949);
+                              linear-gradient(45deg, #4285F4, #EA4335, #FBBC05, #34A853);
             background-origin: border-box;
             background-clip: content-box, border-box;
             box-shadow: 0 4px 12px rgba(0,0,0,0.25);
         }
         .username { 
             font-weight: bold; 
-            font-size: 24px; 
+            font-size: 20px; 
             margin-bottom: 15px; 
         }
         .stats-grid { 
@@ -625,14 +625,14 @@ with tab1:
         background_info = st.session_state.get('background_info', {})
 
         messages_with_name_and_bg = [
-            f"Welcome back {first_name}, let's chat!",
-            f"Hey {first_name}, what's on your mind?",
-            f"Hi {first_name}, ready to explore some ideas?",
+            f"Welcome back {first_name} 👋, let's chat!",
+            f"Hey {first_name} 👋, what's on your mind?",
+            f"Hi {first_name} 👋, ready to explore some ideas?",
         ]
         messages_with_name_no_bg = [
-            f"Hey {first_name}, mind sharing your values & goals to get started?",
-            f"Hi {first_name}, ready to share some thoughts or define your goals?",
-            f"Hi {first_name}, what are you working towards?",
+            f"Hey {first_name} 👋, mind sharing your values & goals to get started?",
+            f"Hi {first_name} 👋, ready to share some thoughts or define your goals?",
+            f"Hi {first_name} 👋, what are you working towards?",
         ]
         messages_no_name_no_bg = [ # Fallback, though name should exist
             "Hey! Mind sharing your values & goals to get started?",
