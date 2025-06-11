@@ -7,6 +7,8 @@ import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
+from database import SessionLocal
+from models import User, NewsletterLog
 
 # Load environment variables from .env file
 load_dotenv()
@@ -14,8 +16,6 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-NEWSLETTER_LOG_FILE = os.path.join('data', 'sent_newsletters.json')
 
 def _get_email_credentials(user_email):
     """
@@ -33,44 +33,30 @@ def _get_email_credentials(user_email):
         logger.warning("One or more SMTP environment variables are not set. Email sending will fail.")
     return creds
 
-def _load_previous_newsletters(user_email):
-    """Loads previously sent newsletter content for a user."""
-    if not os.path.exists(NEWSLETTER_LOG_FILE):
-        return []
+def _get_db():
+    """Generator function to get a database session."""
+    db = SessionLocal()
     try:
-        with open(NEWSLETTER_LOG_FILE, 'r') as f:
-            all_logs = json.load(f)
-        return all_logs.get(user_email, [])
-    except (json.JSONDecodeError, FileNotFoundError):
-        return []
+        yield db
+    finally:
+        db.close()
 
+def _load_previous_newsletters(user_id):
+    """Loads previously sent newsletter content for a user."""
+    db = next(_get_db())
+    return db.query(NewsletterLog).filter(NewsletterLog.user_id == user_id).order_by(NewsletterLog.created_at.desc()).limit(3).all()
 
-def _save_newsletter_log(user_email, content_li_items):
+def _save_newsletter_log(user_id, content_li_items):
     """Saves the sent newsletter content for a user."""
-    if not os.path.exists('data'):
-        os.makedirs('data')
-    
-    all_logs = {}
-    if os.path.exists(NEWSLETTER_LOG_FILE):
-        try:
-            with open(NEWSLETTER_LOG_FILE, 'r') as f:
-                all_logs = json.load(f)
-        except json.JSONDecodeError:
-            all_logs = {}
+    db = next(_get_db())
+    log_entry = NewsletterLog(
+        user_id=user_id,
+        content=content_li_items
+    )
+    db.add(log_entry)
+    db.commit()
 
-    if user_email not in all_logs:
-        all_logs[user_email] = []
-
-    log_entry = {
-        "timestamp": dt.datetime.utcnow().isoformat(),
-        "content": content_li_items
-    }
-    all_logs[user_email].append(log_entry)
-
-    with open(NEWSLETTER_LOG_FILE, 'w') as f:
-        json.dump(all_logs, f, indent=2)
-
-def _generate_html_content(user_email, user_name, input_log, background_info, tasks):
+def _generate_html_content(user_id, user_email, user_name, input_log, background_info, tasks):
     """
     Generates the HTML content for the newsletter using a sophisticated, multi-part prompt.
     """
@@ -78,8 +64,8 @@ def _generate_html_content(user_email, user_name, input_log, background_info, ta
 
     greeting_name = user_name.split()[0] if user_name else user_email.split('@')[0]
     
-    previous_newsletters = _load_previous_newsletters(user_email)
-    previous_newsletters_context = "\n\n".join([log['content'] for log in previous_newsletters[-3:]])
+    previous_newsletters = _load_previous_newsletters(user_id)
+    previous_newsletters_context = "\n\n".join([log.content for log in previous_newsletters])
     
     now = dt.datetime.now(dt.timezone.utc)
     current_time_str = now.isoformat()
@@ -112,7 +98,7 @@ def _generate_html_content(user_email, user_name, input_log, background_info, ta
     combined_content_li_items = response_data.get("text_response", "<li>No insight generated.</li>")
 
     # Save the log
-    _save_newsletter_log(user_email, combined_content_li_items)
+    _save_newsletter_log(user_id, combined_content_li_items)
 
     # Split content for styling
     insights_and_nudges_html = ""
@@ -208,7 +194,7 @@ def _send_email(subject, html_body, to_email, creds):
         logger.error(f"Failed to send newsletter email to {to_email}: {e}", exc_info=True)
         return False
 
-def send_newsletter_for_user(user_email, user_name, session_state):
+def send_newsletter_for_user(user_id, user_email, user_name, session_state):
     """
     Main public function to generate and send a newsletter to a single user.
     It loads the necessary data from session_state and calls the core sending function.
@@ -226,7 +212,7 @@ def send_newsletter_for_user(user_email, user_name, session_state):
 
     subject = f"Your State Analysis & Next Steps - {dt.date.today().strftime('%B %d, %Y')}"
     
-    html_content = _generate_html_content(user_email, user_name, input_log, background_info, tasks)
+    html_content = _generate_html_content(user_id, user_email, user_name, input_log, background_info, tasks)
 
     success = _send_email(subject, html_content, user_email, creds)
 

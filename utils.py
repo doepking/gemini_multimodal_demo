@@ -7,6 +7,9 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
+from database import SessionLocal
+from models import User, TextInput, BackgroundInfo, Task
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -159,70 +162,46 @@ chat_tools = types.Tool(
     ]
 )
 
-# --- File Paths for Persistence ---
-INPUT_LOG_FILE = "data/input_logs.csv"
-BACKGROUND_INFO_FILE = "data/background_information.json"
-TASKS_FILE = "data/tasks.csv"
+# --- Database Functions ---
+def get_db():
+    """Generator function to get a database session."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-# --- Data Persistence Functions ---
-def _save_csv(df, file_path):
-    """Saves a DataFrame to a CSV file."""
-    df.to_csv(file_path, index=False)
+def get_or_create_user(db, user_email: str, user_name: str) -> User:
+    """Gets a user from the database or creates one if it doesn't exist."""
+    user = db.query(User).filter(User.email == user_email).first()
+    if not user:
+        user = User(email=user_email, username=user_name)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
 
-def _load_csv(file_path):
-    """Loads data from a CSV file, handling empty files."""
-    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-        try:
-            df = pd.read_csv(file_path)
-            return df.to_dict('records')
-        except pd.errors.EmptyDataError:
-            logger.warning(f"CSV file is empty: {file_path}")
-            return []
-    return []
+def load_input_log(user_id):
+    db = next(get_db())
+    return db.query(TextInput).filter(TextInput.user_id == user_id).all()
 
-def _save_json(data, file_path):
-    """Saves a dictionary to a JSON file."""
-    with open(file_path, 'w') as f:
-        json.dump(data, f, indent=4)
+def load_tasks(user_id):
+    db = next(get_db())
+    return db.query(Task).filter(Task.user_id == user_id).all()
 
-def _load_json(file_path):
-    """Loads data from a JSON file, handling empty files."""
-    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-        try:
-            with open(file_path, 'r') as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            logger.warning(f"JSON file is invalid or empty: {file_path}")
-            return {}
-    return {}
-
-# --- Public Data Handling Functions ---
-def load_input_log():
-    return _load_csv(INPUT_LOG_FILE)
-
-def save_input_log(data):
-    _save_csv(pd.DataFrame(data), INPUT_LOG_FILE)
-
-def load_tasks():
-    return _load_csv(TASKS_FILE)
-
-def save_tasks(data):
-    _save_csv(pd.DataFrame(data), TASKS_FILE)
-
-def load_background_info():
-    return _load_json(BACKGROUND_INFO_FILE)
-
-def save_background_info(data):
-    _save_json(data, BACKGROUND_INFO_FILE)
+def load_background_info(user_id):
+    db = next(get_db())
+    background_info = db.query(BackgroundInfo).filter(BackgroundInfo.user_id == user_id).first()
+    return background_info.content if background_info else {}
 
 # --- Core Implementation Functions (to be called by LLM-triggered functions) ---
 
 def manage_tasks_and_persist_impl(action: str, session_state, task_description: str = None, task_id: int = None, task_status: str = None, deadline: str = None):
     """
-    Core logic to manage tasks in st.session_state.tasks and save changes to CSV.
+    Core logic to manage tasks in the database.
     """
-    if 'tasks' not in session_state:
-        session_state.tasks = []
+    db = next(get_db())
+    user = get_or_create_user(db, session_state.user.email, session_state.user.name)
 
     if action == "add":
         if not task_description:
@@ -231,51 +210,44 @@ def manage_tasks_and_persist_impl(action: str, session_state, task_description: 
         task_deadline = None
         if deadline:
             try:
-                # Try parsing as a full ISO datetime first
-                dt.datetime.fromisoformat(deadline.replace("Z", "+00:00"))
-                task_deadline = deadline
+                task_deadline = dt.datetime.fromisoformat(deadline.replace("Z", "+00:00"))
             except (ValueError, TypeError):
-                 # If that fails, it might be a date-only string (e.g., from a date picker)
                 try:
                     d = dt.datetime.strptime(deadline, "%Y-%m-%d").date()
-                    # Combine the date with the current time to fulfill the "time now" aspect
                     now_time = dt.datetime.now(dt.timezone.utc).time()
-                    task_deadline_dt = dt.datetime.combine(d, now_time, tzinfo=dt.timezone.utc)
-                    task_deadline = task_deadline_dt.isoformat()
+                    task_deadline = dt.datetime.combine(d, now_time, tzinfo=dt.timezone.utc)
                 except (ValueError, TypeError):
                     return {"status": "error", "message": "Invalid deadline format. Please use ISO format or YYYY-MM-DD."}
 
-        new_task = {
-            "id": len(session_state.tasks) + 1,
-            "description": task_description,
-            "status": "open",
-            "deadline": task_deadline,
-            "created_at": dt.datetime.now(dt.timezone.utc).isoformat()
-        }
-        session_state.tasks.append(new_task)
-        save_tasks(session_state.tasks)
+        new_task = Task(
+            user_id=user.id,
+            description=task_description,
+            status="open",
+            due_date=task_deadline,
+        )
+        db.add(new_task)
+        db.commit()
+        db.refresh(new_task)
         logger.info(f"Task added: {new_task}")
         return {"status": "success", "message": f"Task added: '{task_description}'", "task": new_task}
 
     elif action == "update":
         if task_id is None or task_status is None:
             return {"status": "error", "message": "Task ID and status are required to update a task."}
-        task_found = False
-        for task in session_state.tasks:
-            if task["id"] == task_id:
-                task["status"] = task_status
-                task_found = True
-                save_tasks(session_state.tasks)
-                logger.info(f"Task {task_id} updated to {task_status}")
-                # More descriptive success message
-                success_message = f"Okay, I've updated Task {task['id']}: '{task['description']}' to '{task_status}'."
-                return {"status": "success", "message": success_message, "task": task}
-        if not task_found:
+        
+        task = db.query(Task).filter(Task.id == task_id, Task.user_id == user.id).first()
+        if task:
+            task.status = task_status
+            db.commit()
+            db.refresh(task)
+            logger.info(f"Task {task_id} updated to {task_status}")
+            success_message = f"Okay, I've updated Task {task.id}: '{task.description}' to '{task_status}'."
+            return {"status": "success", "message": success_message, "task": task}
+        else:
             return {"status": "error", "message": f"Task with ID {task_id} not found."}
 
     elif action == "list":
-        # Filter for open and in_progress tasks
-        active_tasks = [task for task in session_state.tasks if task.get("status") in ["open", "in_progress"]]
+        active_tasks = db.query(Task).filter(Task.user_id == user.id, Task.status.in_(['open', 'in_progress'])).all()
         return {"status": "success", "tasks": active_tasks}
 
     else:
@@ -283,68 +255,71 @@ def manage_tasks_and_persist_impl(action: str, session_state, task_description: 
 
 def add_log_entry_and_persist_impl(text_input: str, category_suggestion: str = None, session_state=None):
     """
-    Core logic to process and log text input to st.session_state.input_log and save to CSV.
+    Core logic to process and log text input to the database.
     """
     if session_state is None:
         logger.error("Session state not provided to add_log_entry_and_persist_impl")
         return {"status": "error", "message": "Session state missing."}
 
-    timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_entry = {
-        "timestamp": timestamp,
-        "original_content": text_input,
-        "content_preview": text_input[:100] + "..." if len(text_input) > 100 else text_input, # For display
-        "category": category_suggestion if category_suggestion else "General Log",
-        "details": "Processed by LLM function call." # Placeholder
-    }
-    if 'input_log' not in session_state:
-        session_state.input_log = []
-    session_state.input_log.append(log_entry)
-    save_input_log(session_state.input_log)
-    logger.info(f"Input logged: {log_entry['content_preview']}")
-    return {"status": "success", "message": f"Log added: '{log_entry['content_preview']}'", "entry": log_entry}
+    db = next(get_db())
+    user = get_or_create_user(db, session_state.user.email, session_state.user.name)
+
+    log_entry = TextInput(
+        user_id=user.id,
+        content=text_input,
+        category=category_suggestion if category_suggestion else "General Log",
+    )
+    db.add(log_entry)
+    db.commit()
+    db.refresh(log_entry)
+    
+    content_preview = text_input[:100] + "..." if len(text_input) > 100 else text_input
+    logger.info(f"Input logged: {content_preview}")
+    return {"status": "success", "message": f"Log added: '{content_preview}'", "entry": log_entry}
 
 def update_background_info_and_persist_impl(background_update_json: str, session_state=None):
     """
-    Core logic to update background information in st.session_state.background_info and save to CSV.
+    Core logic to update background information in the database.
     """
     if session_state is None:
         logger.error("Session state not provided to update_background_info_and_persist_impl")
         return {"status": "error", "message": "Session state missing."}
 
-    if 'background_info' not in session_state:
-        session_state.background_info = {}
+    db = next(get_db())
+    user = get_or_create_user(db, session_state.user.email, session_state.user.name)
 
-    # For this demo, we'll primarily update/overwrite the 'user_provided_info' field
-    # A more sophisticated version would parse background_update_text and merge into structured fields.
     try:
-        # Attempt to parse as JSON if user provides structured data
-        potential_json = json.loads(background_update_json)
-        if isinstance(potential_json, dict):
-            for key, value in potential_json.items():
-                if key in session_state.background_info and isinstance(session_state.background_info[key], list) and isinstance(value, list):
-                    # Extend lists if both are lists
-                    session_state.background_info[key].extend(item for item in value if item not in session_state.background_info[key])
-                elif key in session_state.background_info and isinstance(session_state.background_info[key], dict) and isinstance(value, dict):
-                    # Merge dicts
-                    session_state.background_info[key].update(value)
-                else:
-                    # Overwrite or add new key
-                    session_state.background_info[key] = value
-            message = "Background information merged from structured input."
-        else: # Not a dict, treat as free text for 'user_provided_info'
-            session_state.background_info["user_provided_info"] = background_update_json
-            message = "Background information updated with free text."
+        update_data = json.loads(background_update_json)
+        
+        background_info = db.query(BackgroundInfo).filter(BackgroundInfo.user_id == user.id).first()
+        if not background_info:
+            background_info = BackgroundInfo(user_id=user.id, content={})
+            db.add(background_info)
+
+        current_content = background_info.content or {}
+        
+        for key, value in update_data.items():
+            if key in current_content and isinstance(current_content[key], list) and isinstance(value, list):
+                current_content[key].extend(item for item in value if item not in current_content[key])
+            elif key in current_content and isinstance(current_content[key], dict) and isinstance(value, dict):
+                current_content[key].update(value)
+            else:
+                current_content[key] = value
+        
+        background_info.content = current_content
+        db.commit()
+        db.refresh(background_info)
+        
+        message = "Background information updated."
+        logger.info(f"Background info updated. Current: {background_info.content}")
+        return {"status": "success", "message": message, "updated_info": background_info.content}
+
     except json.JSONDecodeError:
-        # If not JSON, assume it's free text for the general info field
-        session_state.background_info["user_provided_info"] = background_update_json
-        message = "Background information updated with free text."
-
-    # Save the updated background info to CSV
-    save_background_info(session_state.background_info)
-
-    logger.info(f"Background info updated. Current: {session_state.background_info}")
-    return {"status": "success", "message": message, "updated_info": session_state.background_info}
+        return {"status": "error", "message": "Invalid JSON format for background update."}
+    except Exception as e:
+        logger.error(f"Error updating background info: {e}", exc_info=True)
+        db.rollback()
+        return {"status": "error", "message": "An unexpected error occurred."}
 
 
 # --- App-Facing Functions ---
@@ -364,14 +339,31 @@ def add_task_and_persist(task_description: str, session_state, deadline: str = N
 
 def update_tasks_and_persist(tasks_list: list, session_state):
     """App-facing function to update the entire task list and persist it."""
-    session_state.tasks = tasks_list
-    save_tasks(session_state.tasks)
+    db = next(get_db())
+    user = get_or_create_user(db, session_state.user.email, session_state.user.name)
+    
+    for task_data in tasks_list:
+        task = db.query(Task).filter(Task.id == task_data['id'], Task.user_id == user.id).first()
+        if task:
+            task.description = task_data['description']
+            task.status = task_data['status']
+            task.due_date = task_data['deadline']
+    
+    db.commit()
     return {"status": "success", "message": "Tasks updated successfully."}
 
 def update_input_log_and_persist(log_list: list, session_state):
     """App-facing function to update the entire input log and persist it."""
-    session_state.input_log = log_list
-    save_input_log(session_state.input_log)
+    db = next(get_db())
+    user = get_or_create_user(db, session_state.user.email, session_state.user.name)
+
+    for log_data in log_list:
+        log = db.query(TextInput).filter(TextInput.id == log_data['id'], TextInput.user_id == user.id).first()
+        if log:
+            log.content = log_data['original_content']
+            log.category = log_data['category']
+
+    db.commit()
     return {"status": "success", "message": "Input log updated successfully."}
 
 

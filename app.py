@@ -21,8 +21,11 @@ from utils import (
     load_input_log,
     load_tasks,
     load_background_info,
+    get_or_create_user,
+    get_db
 )
 from newsletter import send_newsletter_for_user
+from database import init_db
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -154,14 +157,21 @@ if "last_audio_duration" not in st.session_state:
     st.session_state.counter = 0 # Used for unique keys for recorder/input
 
 # Initialize session state for input log, background info, and tasks from files
-if 'input_log' not in st.session_state:
-    st.session_state.input_log = load_input_log()
-if 'background_info' not in st.session_state:
-    st.session_state.background_info = load_background_info()
-if 'tasks' not in st.session_state:
-    st.session_state.tasks = load_tasks()
-if 'edit_background' not in st.session_state:
-    st.session_state.edit_background = False
+if hasattr(st, 'user') and st.user.is_logged_in:
+    # Initialize the database
+    init_db()
+    if 'user' not in st.session_state:
+        db = next(get_db())
+        st.session_state.user = get_or_create_user(db, st.user.email, st.user.name)
+
+    if 'input_log' not in st.session_state:
+        st.session_state.input_log = load_input_log(st.session_state.user.id)
+    if 'background_info' not in st.session_state:
+        st.session_state.background_info = load_background_info(st.session_state.user.id)
+    if 'tasks' not in st.session_state:
+        st.session_state.tasks = load_tasks(st.session_state.user.id)
+    if 'edit_background' not in st.session_state:
+        st.session_state.edit_background = False
 
 # --- Helper Functions ---
 def generate_calendar_html(today, dates_with_inputs):
@@ -917,6 +927,7 @@ with tab5:
     if st.button("Send Newsletter Now", key="send_newsletter_btn"):
         with st.spinner("Sending newsletter..."):
             result = send_newsletter_for_user(
+                user_id=st.session_state.user.id,
                 user_email=st.user.email,
                 user_name=st.user.name,
                 session_state=st.session_state
