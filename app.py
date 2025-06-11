@@ -7,6 +7,8 @@ import datetime as dt
 import pandas as pd
 import requests
 import base64
+import random
+from streamlit_extras.stylable_container import stylable_container
 
 from utils import (
     get_chat_response,
@@ -28,6 +30,108 @@ st.set_page_config(
     page_icon=":speech_balloon:",
     layout="wide"
 )
+
+# --- Consent State Initialization ---
+if 'consent_given' not in st.session_state:
+    st.session_state.consent_given = None # None = Not yet chosen, True = Accepted, False = Declined
+
+# --- Load Privacy Policy & Impressum ---
+try:
+    with open("privacy_policy.md", "r") as f:
+        privacy_policy_content = f.read()
+except FileNotFoundError:
+    privacy_policy_content = "Privacy Policy file not found. Please contact support."
+
+try:
+    with open("imprint.md", "r") as f:
+        impressum_content = f.read()
+except FileNotFoundError:
+    impressum_content = "Imprint/Legal Notice file not found. Please contact support."
+
+
+# --- Consent Banner Logic ---
+consent_placeholder = st.empty() # Placeholder for the banner
+
+def show_consent_banner():
+    with consent_placeholder.container():
+        # Center the banner content
+        _consent_banner_col1, consent_banner_col_main, _consent_banner_col3 = st.columns([0.2, 3, 0.2]) # More mobile-friendly ratio
+        with consent_banner_col_main:
+            with stylable_container(
+                key="consent_banner",
+                css_styles="""
+                    {
+                        /* Use Streamlit theme variables for dark mode compatibility */
+                        background-color: var(--secondary-background-color);
+                        color: var(--text-color);
+                        border: 1px solid var(--gray-40);
+                        border-radius: 10px;
+                        padding: 25px;
+                        box-shadow: 0 4px 12px 0 rgba(0,0,0,0.05);
+                    }
+                    /* Mobile-friendly adjustments */
+                    @media (max-width: 640px) {
+                        {
+                            padding: 15px;
+                            border-radius: 5px; /* Slightly smaller radius for smaller screens */
+                        }
+                    }
+                """
+            ):
+                st.warning("🍪 **Privacy & Cookies Notice**")
+
+                st.info("""
+                This app uses essential cookies and services to function.
+                Please review the details before proceeding.
+                """)
+
+                with st.expander("View Details", expanded=False):
+                    st.subheader("Core Services")
+                    st.markdown("""
+                        - **Session Management & Authentication:** We use necessary cookies and services from Streamlit and Google to manage your session and securely log you in.
+                        - **AI-Powered Features:** Google Gemini is utilized for chat, analysis, and transcription to enhance your experience.
+                        - **Local Data Storage:** Your inputs, tasks, and background information are stored locally in files to personalize the app.
+                    """)
+                    st.subheader("Legal Information")
+                    st.markdown("Review our Privacy Policy and Legal Notice for detailed information on data collection, usage, storage, and your rights.")
+
+                    # Using columns for a cleaner layout of download buttons
+                    col_privacy, col_imprint = st.columns(2)
+                    with col_privacy:
+                        st.download_button(
+                            label="Download Privacy Policy",
+                            data=privacy_policy_content,
+                            file_name="privacy_policy.md",
+                            mime="text/markdown",
+                            key="consent_download_privacy",
+                            use_container_width=True
+                        )
+                    with col_imprint:
+                        st.download_button(
+                            label="Download Imprint / Legal Notice",
+                            data=impressum_content,
+                            file_name="imprint.md",
+                            mime="text/markdown",
+                            key="consent_download_imprint",
+                            use_container_width=True
+                        )
+
+                st.markdown("""
+                    <div style='text-align: center; margin-bottom: 1rem;'>
+                    By clicking <b>Accept</b>, you consent to this.<br>If you <b>Decline</b>, you will not be able to use the app.
+                    </div>
+                """, unsafe_allow_html=True)
+
+                # Center the buttons
+                _btn_spacer1, btn_col1, btn_col2, _btn_spacer2 = st.columns([1.5, 1, 1, 1.5])
+                if btn_col1.button("✅ Accept", key="accept_consent", use_container_width=True):
+                    st.session_state.consent_given = True
+                    consent_placeholder.empty()
+                    st.rerun()
+                if btn_col2.button("❌ Decline", key="decline_consent", use_container_width=True):
+                    st.session_state.consent_given = False
+                    consent_placeholder.empty()
+                    st.rerun()
 
 # --- Initialize Session State ---
 if "conversation_history" not in st.session_state:
@@ -251,8 +355,67 @@ def calculate_activity_data(input_log, tasks):
         **task_stats
     }
 
-# --- Main App Content ---
-if not (hasattr(st.user, 'is_logged_in') and st.user.is_logged_in):
+# --- Main Application Logic ---
+
+# 1. Check Consent Status FIRST
+if st.session_state.consent_given is None and not (hasattr(st.user, 'is_logged_in') and st.user.is_logged_in):
+    # Show consent banner if no choice has been made
+    show_consent_banner()
+    st.stop() # Stop execution until consent is given or declined
+
+elif st.session_state.consent_given is False:
+     # Show message if consent declined
+     st.error("🍪 Consent Declined: You have declined the use of cookies and data processing required for AI features. Please refresh the page if you wish to reconsider.")
+     st.stop() # Stop execution
+
+# 2. Check Authentication Status (only if consent is True)
+elif st.session_state.consent_given is True and not (hasattr(st.user, 'is_logged_in') and st.user.is_logged_in):
+    # --- User NOT Logged In ---
+    faq_modal_style = """
+    <style>
+    /* Target Streamlit expanders specifically */
+    div[data-testid="stExpander"] {
+        border: none;
+        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+        border-radius: 10px;
+    }
+    div[data-testid="stExpander"] .stExpanderHeader {
+        background-color: #f0f2f6;
+        padding: 10px;
+        font-weight: bold;
+    }
+    div[data-testid="stExpander"] .stExpanderContent {
+        padding: 20px;
+        color: black;
+    }
+    </style>
+    """
+    st.markdown(faq_modal_style, unsafe_allow_html=True) # Apply style before the expander
+    col1, col2, col3 = st.columns([1,1,1])
+    with col2:
+        with st.expander("Frequently Asked Questions", expanded=False):
+            st.markdown(
+            """
+            **What is this?**
+
+            This app is a multimodal AI chat application using Google's Gemini model. It allows users to interact with the AI through both text and audio input.
+
+            **What are the main features?**
+
+            - **Chat with AI:** Engage in text-based and audio conversations with the Gemini model.
+            - **Input Log:** Keep a record of your thoughts, decisions, and actions in a structured format.
+            - **Background Info:** Provide context about yourself (goals, values, etc.) to help the AI understand you better.
+            - **Task Management:** Create and manage tasks, which can be updated by the AI based on your conversation.
+            - **Data Persistence:** All your data is saved locally in the `data` directory.
+
+            **What happens with my data?**
+
+            - You have complete control over your stored data.
+            - All data is stored locally on your machine.
+            - You can view, modify, or delete your data in the "Input Log", "Tasks", and "Background Info" sections.
+            """
+        )
+
     st.markdown(
         '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"/>',
         unsafe_allow_html=True,
@@ -426,6 +589,24 @@ with st.sidebar:
     if st.button("Logout", key="logout_button", use_container_width=True):
         st.logout()
         st.rerun()
+    
+    st.markdown("---") # Separator
+    # Link to Privacy Policy and Impressum in sidebar as well
+    with st.expander("Legal Information", expanded=True):
+        st.download_button(
+            label="Download Privacy Policy",
+            data=privacy_policy_content,
+            file_name="privacy_policy.md",
+            mime="text/markdown",
+            key="sidebar_download_privacy"
+        )
+        st.download_button(
+            label="Download Imprint / Legal Notice",
+            data=impressum_content,
+            file_name="impressum.md",
+            mime="text/markdown",
+            key="sidebar_download_imprint"
+        )
 
 st.title("Life Tracker with Gemini AI")
 st.write(
@@ -437,7 +618,43 @@ st.write(
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info", "Newsletter"])
 
 with tab1:
-    st.subheader("Hey there 👋, what's on your mind?")
+    # --- Determine personalized chat input placeholder and subheader ---
+    if 'chat_subheader_text' not in st.session_state:
+        user_name = st.user.name
+        first_name = user_name.split()[0] if user_name else None
+        background_info = st.session_state.get('background_info', {})
+
+        messages_with_name_and_bg = [
+            f"Welcome back {first_name}, let's chat!",
+            f"Hey {first_name}, what's on your mind?",
+            f"Hi {first_name}, ready to explore some ideas?",
+        ]
+        messages_with_name_no_bg = [
+            f"Hey {first_name}, mind sharing your values & goals to get started?",
+            f"Hi {first_name}, ready to share some thoughts or define your goals?",
+            f"Hi {first_name}, what are you working towards?",
+        ]
+        messages_no_name_no_bg = [ # Fallback, though name should exist
+            "Hey! Mind sharing your values & goals to get started?",
+            "Hi! What's on your mind today?",
+            "Let's get started! What are your main objectives?",
+        ]
+        default_messages = [
+            "What's on your mind?",
+            "Let's chat!",
+            "Ready to explore some ideas?",
+        ]
+
+        if first_name and background_info:
+            st.session_state.chat_subheader_text = random.choice(messages_with_name_and_bg)
+        elif first_name:
+            st.session_state.chat_subheader_text = random.choice(messages_with_name_no_bg)
+        elif background_info: # Has BG but somehow no first_name
+            st.session_state.chat_subheader_text = random.choice(default_messages) # Or a specific variant
+        else: # No first_name and no BG
+            st.session_state.chat_subheader_text = random.choice(messages_no_name_no_bg)
+
+    st.subheader(st.session_state.chat_subheader_text)
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):

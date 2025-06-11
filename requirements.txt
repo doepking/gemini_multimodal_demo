@@ -1,7 +1,8 @@
-streamlit>=1.29.0
+streamlit>=1.45.0
 python-dotenv
 fsspec
 gcsfs
 google-genai
 streamlit-audiorecorder
+streamlit_extras
 Authlib>=1.3.2
