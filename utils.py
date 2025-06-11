@@ -261,6 +261,8 @@ def manage_tasks_and_persist_impl(action: str, user: User, task_description: str
         task = db.query(Task).filter(Task.id == task_id, Task.user_id == user.id).first()
         if task:
             task.status = task_status
+            if task_status == "completed":
+                task.completed_at = dt.datetime.now(dt.timezone.utc)
             db.commit()
             db.refresh(task)
             logger.info(f"Task {task_id} updated to {task_status}")
@@ -393,6 +395,10 @@ def update_tasks_and_persist(tasks_list: list, user: User):
                 task.description = task_data['description']
                 task.status = task_data['status']
                 task.deadline = task_data['deadline']
+                if task_data['status'] == 'completed' and task.completed_at is None:
+                    task.completed_at = dt.datetime.now(dt.timezone.utc)
+                elif task_data['status'] != 'completed':
+                    task.completed_at = None
     
     db.commit()
     return {"status": "success", "message": "Tasks updated successfully."}

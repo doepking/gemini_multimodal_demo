@@ -840,7 +840,7 @@ with tab2:
             column_config={
                 "id": None,
                 "created_at": st.column_config.DatetimeColumn(
-                    "Timestamp",
+                    "Created At",
                     format="YYYY-MM-DD HH:mm:ss",
                     disabled=True
                 ),
