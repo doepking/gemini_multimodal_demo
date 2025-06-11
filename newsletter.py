@@ -176,21 +176,25 @@ def _generate_html_content(user_id, user_email, user_name, session_state):
     # We pass an empty conversation history as per the user's request
     combined_content_li_items = _get_newsletter_content_from_llm(prompt)
 
+    # Safeguard against markdown in response
+    processed_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', combined_content_li_items)
+    processed_content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', processed_content)
+
     # Save the log
-    _save_newsletter_log(user_id, combined_content_li_items)
+    _save_newsletter_log(user_id, processed_content)
 
     # Split content for styling
     insights_and_nudges_html = ""
     motivational_quote_text = ""
-    last_li_start_index = combined_content_li_items.rfind('<li>')
+    last_li_start_index = processed_content.rfind('<li>')
 
     if last_li_start_index != -1:
-        insights_and_nudges_html = combined_content_li_items[:last_li_start_index]
-        quote_li_full_tag = combined_content_li_items[last_li_start_index:]
+        insights_and_nudges_html = processed_content[:last_li_start_index]
+        quote_li_full_tag = processed_content[last_li_start_index:]
         quote_li_content_raw = re.sub(r'</?li[^>]*>', '', quote_li_full_tag)
         motivational_quote_text = quote_li_content_raw.replace("<em>", "").replace("</em>", "").strip()
     else:
-        insights_and_nudges_html = combined_content_li_items
+        insights_and_nudges_html = processed_content
 
     # World-class HTML styling
     html_content = f"""
