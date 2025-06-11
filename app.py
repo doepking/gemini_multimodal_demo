@@ -822,13 +822,17 @@ with tab2:
             use_container_width=True,
             key="data_editor_logs",
             column_config={
-                "id": st.column_config.Column("ID", disabled=True),
-                "created_at": st.column_config.Column("Timestamp", disabled=True),
+                "id": None,
+                "created_at": st.column_config.DatetimeColumn(
+                    "Timestamp",
+                    format="YYYY-MM-DD HH:mm:ss",
+                    disabled=True
+                ),
                 "content": st.column_config.Column("Content"),
                 "category": st.column_config.Column("Category"),
             },
             # Reorder columns for better display
-            column_order=["id", "created_at", "content", "category"]
+            column_order=["created_at", "content", "category"]
         )
 
         if st.button("Save Log Changes"):
