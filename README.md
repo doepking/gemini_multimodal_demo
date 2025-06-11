@@ -1,140 +1,179 @@
-# Multimodal AI Chat with Gemini
+# AI-enabled Life Tracker
 
-This project demonstrates a multimodal AI chat application using Google's Gemini model. It allows users to interact with the
-AI through both text and audio input. This version introduces **input logging** and **background information management**, powered by
-**LLM function calling**, allowing for a more personalized and stateful interaction.
+This project is a sophisticated, multimodal AI chat application using Google's Gemini model, deployed as a scalable web service on Google Cloud. It allows users to interact with the AI through both text and audio, log their activities, manage tasks, and receive personalized insights, all while ensuring data privacy and persistence through a secure, cloud-based architecture.
 
 ## Features
 
--   **Text Chat:** Engage in text-based conversations with the Gemini model.
--   **Audio Chat:** Record and send audio messages to the AI, which will transcribe and process them.
--   **Input Logging:** Log thoughts, observations, or any text input via a dedicated "Input Log" tab. Logs are fully editable directly in the UI.
--   **Background Information Management:** Provide and update personal background information (goals, values, preferences) in the "Background Info" tab. The entire information object is editable as a JSON in the UI. The LLM can use this information to tailor its responses.
--   **LLM Function Calling:** The Gemini model can now intelligently decide to call specific functions to:
-    *   Log user input.
+-   **Multimodal Chat:** Engage in text-based and audio conversations with the Gemini model.
+-   **Cloud-Native Architecture:** Fully deployed on Google Cloud, using **Cloud Run** for scalable, serverless application hosting and **Cloud SQL** (PostgreSQL) for robust, persistent data storage.
+-   **Secure User Authentication:** Integrates **Google OAuth** for secure sign-in, ensuring that all user data is protected and tied to their account.
+-   **User Consent & Privacy:** Implements a mandatory **consent layer** on first visit. Users must accept the terms before using the app. Includes dedicated **Privacy Policy** and **Imprint** pages.
+-   **Persistent, Structured Data:** All user data (logs, tasks, background info, etc.) is stored securely in a **Cloud SQL database**, defined by a clear **SQLAlchemy ORM schema**. This replaces the previous local file-based storage.
+-   **Intelligent Function Calling:** The Gemini model intelligently calls backend functions to:
+    *   Log user input to the database.
     *   Update user background information.
     *   Manage tasks (add, update, list).
-    This enables more dynamic and context-aware interactions.
--   **Task Management:** A new "Tasks" tab allows users to view, add, delete, and edit tasks in a data grid. Tasks can also be managed via chat by asking the AI.
--   **Data Persistence:** Input logs, background information, and tasks are now persisted to `.csv` and `.json` files in the `data/` directory, so they are not lost when the application restarts.
--   **Conversation History:** The application maintains a history of the conversation, allowing the AI to provide contextually
-relevant responses.
--   **Streamlit Interface:** A user-friendly web interface built with Streamlit, now featuring tabs for Chat, Input Log, Tasks, and Background Info for organized interaction.
--   **Dockerized Deployment:** The application is containerized using Docker for simple deployment and portability.
--   **Newsletter Tab:** A new "Newsletter" tab allows users to view past newsletters and trigger new ones.
--   **Newsletter "Nudge Engine":** A backend service that can be triggered to send out newsletters based on user activity and preferences.
--   **User Authentication:** Secure user authentication is implemented using Google OAuth, ensuring that only authorized users can access the application.
+-   **Comprehensive Data Management:**
+    *   **Input Log:** A complete history of user inputs, fully editable in the UI.
+    *   **Task Management:** A dedicated tab to view, add, delete, and edit tasks. Tasks can also be managed via chat.
+    -   **Background Info:** A JSON-based view for providing and updating personal context (goals, values, etc.) to tailor AI responses.
+-   **Automated Newsletter Engine:** A "Newsletter" tab allows users to trigger a personalized email newsletter that provides insights and "nudges" based on their recent activity.
+-   **Streamlined Deployment:** The entire application is containerized with Docker and deployed to Cloud Run using simple `build.sh` and `deploy.sh` scripts.
+
+## Architecture Diagram
+
+```mermaid
+graph TD
+    subgraph User Interface
+        A[Streamlit Frontend]
+    end
+
+    subgraph Google Cloud Platform
+        B[Google Cloud Run]
+        C[Cloud SQL - PostgreSQL Database]
+        D[Google Container Registry]
+        E[Google OAuth]
+        F[Gemini API]
+    end
+
+    subgraph External Services
+        G[SMTP Service for Email]
+    end
+
+    A -- Deployed on --> B
+    B -- Authenticates via --> E
+    B -- Interacts with --> F
+    B -- Stores & Retrieves Data --> C
+    B -- Sends Emails via --> G
+
+    subgraph Deployment
+        H(Local Machine)
+        I(build.sh)
+        J(deploy.sh)
+        K(Dockerfile)
+    end
+
+    H -- Runs --> I
+    I -- Builds --> K
+    I -- Pushes Image to --> D
+    H -- Runs --> J
+    J -- Deploys Image from --> D -- to --> B
+```
 
 ## Prerequisites
 
-Before running this application, you'll need the following:
-
+-   **Google Cloud Project:** A GCP project with the Cloud Run, Cloud SQL, and Artifact Registry APIs enabled.
 -   **Google GenAI API Key:** Obtain a free API key from [Google AI Studio](https://aistudio.google.com/apikey).
 -   **Python 3.12:** Ensure you have Python 3.12 installed on your system.
--   **Docker (Optional):** If you plan to deploy using Docker, make sure you have Docker installed and running.
+-   **Docker:** Docker installed and running locally to build the container image.
+-   **gcloud CLI:** The Google Cloud CLI installed and authenticated.
 
-## Installation
+## Installation & Deployment
 
-### Using Pip
+This application is designed for deployment on Google Cloud. Local execution is possible but requires a running Cloud SQL proxy or local PostgreSQL instance configured to match the models.
 
-1. **Install the Google GenAI Python SDK:**
-
+1.  **Clone the repository:**
     ```bash
-    pip3 install google-genai
+    git clone <repository-url>
+    cd gemini_multimodal_demo
     ```
 
-2. **Install other required Python packages:**
+2.  **Create the `.env` file:**
+    -   Copy the `.env.example` to a new file named `.env`.
+    -   Fill in all the required values for your GCP project, Cloud SQL instance, Google OAuth credentials, and SMTP service.
 
+3.  **Build the Docker Image:**
+    -   Run the build script. This will build the Docker image and push it to your project's Google Container Registry.
     ```bash
-    pip3 install -r requirements.txt
+    ./build.sh
     ```
 
-### Using Docker
-
-The recommended way to run the application with Docker is to use `docker-compose`, which will also mount the `data` directory to persist your logs, tasks, and background info on your host machine.
-
-1. **Create the `.env` file:**
-    -   If you haven't already, create a `.env` file in the root directory.
-    -   Add your Google GenAI API key to it:
-        ```
-        LLM_API_KEY=your_api_key_here
-        ```
-
-2. **Build and run with Docker Compose:**
+4.  **Deploy to Cloud Run:**
+    -   Run the deployment script. This will deploy the container image from GCR to Cloud Run, configuring all necessary environment variables and connections.
     ```bash
-    docker-compose up -d --build
+    ./deploy.sh
     ```
-
-3. **Access the application:** Open your web browser and go to `http://localhost:8080`.
-
-4. **To stop the application:**
-    ```bash
-    docker-compose down
-    ```
+    -   The script will output the URL of your deployed service.
 
 ## Usage
 
-### Running Locally with Pip
+-   **Access the Application:** Open the URL provided by the `deploy.sh` script in your web browser.
+-   **First Visit:**
+    -   You will be presented with a **consent banner**. Review the details and click "Accept" to proceed.
+    -   You will then be prompted to **Sign in with Google**.
+-   **Interacting with the App:**
+    -   **Chat Tab:** Use text or audio to interact with the AI. The AI can log your inputs, manage tasks, and update your background info automatically.
+    -   **Input Log, Tasks, Background Info Tabs:** Directly view, edit, and manage your data. All changes are saved to the Cloud SQL database.
+    -   **Newsletter Tab:** Manually trigger a personalized newsletter to be sent to your email.
 
-1. **Start the Streamlit application:**
+## Legal
 
-    ```bash
-    streamlit run app.py
-    ```
-
-2. **Access the application:** Open your web browser and go to `http://localhost:8501` (or the URL provided by Streamlit).
-
-## Interacting with the Chatbot
-
-The application interface is organized into three main tabs:
-
--   **Chat Tab:**
-    -   **Text Input:** Type your message in the chat input box and press Enter.
-    -   **Audio Input:**
-        1. Click the "Start Recording" button.
-        2. Speak your message.
-        3. Click the "Stop Recording" button.
-        4. The audio will be sent to the AI for processing.
-    -   The AI may use function calling to log your input or update background information based on your conversation.
-
--   **Input Log Tab:**
-    -   View, edit, add, or delete log entries directly in the data grid. Click "Save Log Changes" to persist modifications.
-    -   Use the form at the bottom to quickly add a new log entry.
-    -   Logs are saved to `data/input_logs.csv`.
-
--   **Tasks Tab:**
-    -   View, edit, add, or delete tasks directly in the data grid. Click "Save Task Changes" to persist modifications.
-    -   Add new tasks using the form at the bottom.
-    -   Tasks can also be added or updated by asking the chat assistant (e.g., "add a task to buy milk").
-    -   Tasks are saved to `data/tasks.csv`.
-
--   **Background Info Tab:**
-    -   View and edit your background information directly in the JSON text area.
-    -   Click "Save Background Info Changes" to persist your modifications.
-    -   The LLM can also update this information via function calling during a chat.
-    -   Background info is saved to `data/background_information.json`.
-
--   **Newsletter Tab:**
-    -   View a list of previously sent newsletters.
-    -   Manually trigger the "nudge engine" to generate and send a new newsletter.
-
-## Authentication
-
-Before accessing the main application, users are required to authenticate using their Google account. This is handled automatically when you first visit the application.
+This application includes the following legal documents:
+-   **`privacy_policy.md`**: Outlines the data handling and privacy practices of the application.
+-   **`imprint.md`**: Provides the legal notice and contact information.
 
 ## Code Overview
 
--   **`app.py`:** Contains the Streamlit application logic, including UI elements for the chat, input log, tasks, and background info tabs. It manages audio recording, chat input handling, and form submissions. It calls the appropriate `*_and_persist` functions from `utils.py` whenever data is modified through the UI. It also handles user authentication.
--   **`newsletter.py`:** Contains the logic for the newsletter feature, including generating content and sending emails.
--   **`utils.py`:** A refactored module that cleanly separates responsibilities.
-    -   **App-Facing Functions (`*_and_persist`):** A set of functions (`add_log_entry_and_persist`, `update_tasks_and_persist`, etc.) designed to be called directly from the `app.py` UI. Each function handles a specific data modification (like adding a task or updating the entire log) and ensures the changes are saved to a file.
-    -   **Core Implementation Functions (`*_impl`):** The internal logic for processing data. These are called by the app-facing functions or by the LLM's function-calling mechanism.
-    -   **LLM Chat & Tools:**
-        -   `get_chat_response`: The core function for interacting with the Gemini model, handling text, audio, and function calling.
-        -   **Tool Definitions:** Defines `add_log_entry`, `update_background_info`, and `manage_tasks` as tools available to the LLM.
-    -   **Data Persistence Functions:** Low-level functions for loading and saving data to/from files in the `data/` directory.
--   **`Dockerfile`:** Defines the Docker image for the application, including the necessary dependencies and commands to run the
-application.
+-   **`app.py`:** The main Streamlit application. Handles UI, state management, user authentication flow, and the consent layer.
+-   **`utils.py`:** Contains the core business logic, including:
+    -   Interaction with the Gemini API (`get_chat_response`).
+    -   Function calling definitions and implementation logic (`*_impl` functions).
+    -   Database interaction functions for loading and saving data.
+-   **`database.py`:** Configures the connection to the **Google Cloud SQL** database using the Cloud SQL Connector and SQLAlchemy.
+-   **`models.py`:** Defines the database schema using **SQLAlchemy ORM**, with tables for `User`, `TextInput`, `Task`, `BackgroundInfo`, and `NewsletterLog`.
+-   **`newsletter.py`:** Logic for generating and sending personalized email newsletters using an SMTP service.
+-   **`build.sh`:** Script to build the application's Docker image and push it to Google Container Registry.
+-   **`deploy.sh`:** Script to deploy the Docker image to **Google Cloud Run**, setting up all necessary environment variables and Cloud SQL connections.
+-   **`.env.example`:** Template for the environment variables required to run the application.
+-   **`Dockerfile`:** Defines the container image for the application.
+
+## LLM Interaction and Function Calling
+
+The intelligence of this application lies in how the Gemini model interprets user input and interacts with the application's backend through a sophisticated function-calling mechanism.
+
+### System Prompt & Context
+
+On every interaction, the LLM is provided with a detailed system prompt that includes:
+-   **Current Time and Date:** To provide timely and relevant responses.
+-   **User's Background Information:** A JSON object of the user's goals, values, and preferences.
+-   **Recent Log Entries:** A summary of the user's last five log entries to understand recent context.
+-   **Current Tasks:** A list of all open and in-progress tasks.
+-   **Function Definitions:** A schema of all available tools the model can use.
+
+This rich context allows the model to make informed decisions rather than just responding to the immediate user prompt.
+
+### Available Functions
+
+The model has access to a set of tools (functions) that it can call to perform actions within the application. The decision to call one or more functions is made by the LLM based on the user's intent.
+
+1.  **`add_log_entry`**:
+    -   **Purpose:** To record a user's thoughts, observations, or general statements.
+    -   **Trigger:** Called whenever the user provides a statement that should be logged for future reference. It's designed to capture the "what" and "why" of a user's day.
+    -   **Example:** User says, "I'm feeling motivated after my morning run." -> The model calls `add_log_entry` to save this sentiment.
+
+2.  **`update_background_info`**:
+    -   **Purpose:** To update the user's core profile, including their goals, values, challenges, and habits.
+    -   **Trigger:** Called when the user explicitly states a new goal, a change in values, or provides any new personal context. The model extracts the relevant information and structures it into the required JSON format.
+    -   **Example:** User says, "I want to start learning Spanish." -> The model calls `update_background_info` with a JSON object to add "Learn Spanish" to the user's goals.
+
+3.  **`manage_tasks`**:
+    -   **Purpose:** A comprehensive tool to add, update, or list tasks.
+    -   **Triggers:**
+        -   `action='add'`: When the user expresses a concrete, actionable intent (e.g., "I need to send the report by 5 PM."). The model also infers deadlines from natural language.
+        -   `action='update'`: When the user indicates progress or completion of a task (e.g., "I just finished the presentation slides.").
+        -   `action='list'`: When the user asks to see their current tasks.
+
+### Multi-Function Calling
+
+The system is designed to handle complex inputs by calling multiple functions in a single turn. This allows for more efficient and natural interactions.
+
+-   **Example:** User says, "Finished my workout, and I've decided my main goal this month is to improve my diet."
+-   **LLM Action:**
+    1.  Calls `manage_tasks` to mark the "workout" task as complete.
+    2.  Calls `update_background_info` to add "Improve my diet" to the user's goals.
+    3.  Calls `add_log_entry` to record the user's statement and the decision made.
+
+This intelligent, multi-faceted approach allows the application to act as a true assistant, seamlessly integrating user conversation into structured, actionable data.
 
 ## Notes
 
@@ -142,22 +181,6 @@ application.
 -   Temporary audio files are created and deleted during audio processing.
 -   Conversation history, input logs, and background information are stored in the Streamlit session state.
 -   The Docker image uses a slim Python base image and installs `ffmpeg` for audio processing.
-
-## Limitations
-
--   This is a demo and may not handle all edge cases or complex conversation scenarios.
--   The audio processing is limited to `.wav` files.
--   Error handling is minimal.
--   The LLM's ability to perfectly categorize logs or structure background information from free text is dependent on the model's capabilities and the clarity of user input.
-
-## Future Enhancements
-
--   Improve error handling and robustness.
--   Support additional audio formats.
--   Implement more sophisticated conversation management.
--   Expand function calling capabilities with more tools.
--   Allow for more structured editing of background information.
--   Persist logs, tasks, and background information beyond the current session (e.g., to a database).
 
 ## Contributing
 
