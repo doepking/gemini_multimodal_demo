@@ -494,9 +494,12 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
 
     3.  **Call `manage_tasks` when:**
         - The user wants to add, update, or list tasks.
-        - **Add Task (`action='add'`):** Use for explicit requests ("add a task...") AND for statements of future intent ("I will...", "I need to...", "I plan to...").
+        - **Add Task (`action='add'`):**
+            - Use for explicit requests ("add a task...") AND for statements of future, concrete, actionable intent ("I will...", "I need to...", "I plan to...").
+            - The `task_description` should be self-contained and comprehensive, including relevant context from the user's input. Avoid creating multiple, small, related tasks; prefer a single, well-defined task for a logical unit of work.
             - You MUST infer deadlines from text like "tomorrow", "by Friday at 5pm", or "on Dec 25th" and convert them to an ISO string for the `deadline` argument.
-            - Example (Intent): "I'm going to draft the project proposal this afternoon." -> Call `manage_tasks` with `action='add'`, `task_description='Draft the project proposal'`, and an inferred `deadline`.
+            - **Example (Intent):** "I'm going to draft the project proposal this afternoon." -> Call `manage_tasks` with `action='add'`, `task_description='Draft the project proposal'`, and an inferred `deadline`.
+            - **Non-Example (Reflection):** "Okay, so we are heading out for our daily morning walk. Today is Sunday, and we'll be heading to the forest and the playground again. And also, I'll think about my next video, which is more focused on the implementation, and think about the script, and then also check some more content that's on YouTube, like how my current video is doing." -> DO NOT call `manage_tasks` for this. This is a reflective thought, not a concrete to-do item. It should only be logged with `add_log_entry`.
         - **Update Task (`action='update'`):** Use for explicit requests ("mark task 1 as done") AND for statements of progress or completion ("I finished the report", "I worked on the slides").
             - You need to infer the `task_id` and the `task_status` ('completed' or 'in_progress').
             - Example (Implicit Completion): "Just got back from my run." -> If a "Go for a run" task exists, call `manage_tasks` with `action='update'`, the correct `task_id`, and `task_status='completed'`.
