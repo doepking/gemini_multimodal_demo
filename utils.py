@@ -2,6 +2,7 @@ import os
 import logging
 import json
 import datetime as dt
+import pandas as pd
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -14,8 +15,7 @@ load_dotenv()
 
 # Gemini API initialization
 client = genai.Client(api_key=os.environ.get("LLM_API_KEY"))
-MODEL_NAME = "gemini-2.0-flash-exp"
-
+MODEL_NAME = "gemini-2.5-flash-preview-05-20"
 # Safety settings
 safety_settings = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
@@ -58,11 +58,51 @@ BACKGROUND_INFO_SCHEMA_EXAMPLE = """
 }
 """
 
+manage_tasks_func = types.Tool(
+    function_declarations=[
+        {
+            "name": "manage_tasks",
+            "description": (
+                "Manages tasks in the session state. Use this to add, update, or list tasks based on user input. "
+                "The 'action' parameter determines the operation: 'add', 'update', 'list'."
+            ),
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "action": {
+                        "type": "STRING",
+                        "description": "The action to perform on the tasks.",
+                        "enum": ["add", "update", "list"]
+                    },
+                    "task_description": {
+                        "type": "STRING",
+                        "description": "The description of the task to add or update."
+                    },
+                    "task_id": {
+                        "type": "INTEGER",
+                        "description": "The ID of the task to update."
+                    },
+                    "task_status": {
+                        "type": "STRING",
+                        "description": "The new status of the task to update.",
+                        "enum": ["open", "in_progress", "completed"]
+                    },
+                    "deadline": {
+                        "type": "STRING",
+                        "description": "The deadline for the task in ISO format (e.g., YYYY-MM-DDTHH:MM:SSZ)."
+                    }
+                },
+                "required": ["action"],
+            },
+        }
+    ]
+)
+
 # --- Function Declarations for LLM ---
 add_log_entry_func = types.Tool(
     function_declarations=[
         {
-            "name": "process_text_input_for_log",
+            "name": "add_log_entry",
             "description": (
                 "Processes a user's text input, categorizes it (optional, basic for now), "
                 "and adds it to a session-based log. Use this when the user provides a general statement, "
@@ -89,7 +129,7 @@ add_log_entry_func = types.Tool(
 update_background_info_func = types.Tool(
     function_declarations=[
         {
-            "name": "update_background_info_in_session",
+            "name": "update_background_info",
             "description": (
                 "Updates the user's background information stored in the session state. "
                 "Use this when the user explicitly provides or modifies their personal details, goals, values, or preferences. "
@@ -115,18 +155,138 @@ chat_tools = types.Tool(
     function_declarations=[
         add_log_entry_func.function_declarations[0],
         update_background_info_func.function_declarations[0],
+        manage_tasks_func.function_declarations[0],
     ]
 )
 
+# --- File Paths for Persistence ---
+INPUT_LOG_FILE = "data/input_logs.csv"
+BACKGROUND_INFO_FILE = "data/background_information.json"
+TASKS_FILE = "data/tasks.csv"
+
+# --- Data Persistence Functions ---
+def _save_csv(df, file_path):
+    """Saves a DataFrame to a CSV file."""
+    df.to_csv(file_path, index=False)
+
+def _load_csv(file_path):
+    """Loads data from a CSV file, handling empty files."""
+    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+        try:
+            df = pd.read_csv(file_path)
+            return df.to_dict('records')
+        except pd.errors.EmptyDataError:
+            logger.warning(f"CSV file is empty: {file_path}")
+            return []
+    return []
+
+def _save_json(data, file_path):
+    """Saves a dictionary to a JSON file."""
+    with open(file_path, 'w') as f:
+        json.dump(data, f, indent=4)
+
+def _load_json(file_path):
+    """Loads data from a JSON file, handling empty files."""
+    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+        try:
+            with open(file_path, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            logger.warning(f"JSON file is invalid or empty: {file_path}")
+            return {}
+    return {}
+
+# --- Public Data Handling Functions ---
+def load_input_log():
+    return _load_csv(INPUT_LOG_FILE)
+
+def save_input_log(data):
+    _save_csv(pd.DataFrame(data), INPUT_LOG_FILE)
+
+def load_tasks():
+    return _load_csv(TASKS_FILE)
+
+def save_tasks(data):
+    _save_csv(pd.DataFrame(data), TASKS_FILE)
+
+def load_background_info():
+    return _load_json(BACKGROUND_INFO_FILE)
+
+def save_background_info(data):
+    _save_json(data, BACKGROUND_INFO_FILE)
+
 # --- Core Implementation Functions (to be called by LLM-triggered functions) ---
 
-def process_text_input_for_log_impl(text_input: str, category_suggestion: str = None, session_state=None):
+def manage_tasks_and_persist_impl(action: str, session_state, task_description: str = None, task_id: int = None, task_status: str = None, deadline: str = None):
     """
-    Processes and logs text input to st.session_state.input_log.
-    (Simplified version for session state)
+    Core logic to manage tasks in st.session_state.tasks and save changes to CSV.
+    """
+    if 'tasks' not in session_state:
+        session_state.tasks = []
+
+    if action == "add":
+        if not task_description:
+            return {"status": "error", "message": "Task description is required to add a task."}
+        
+        task_deadline = None
+        if deadline:
+            try:
+                # Try parsing as a full ISO datetime first
+                dt.datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+                task_deadline = deadline
+            except (ValueError, TypeError):
+                 # If that fails, it might be a date-only string (e.g., from a date picker)
+                try:
+                    d = dt.datetime.strptime(deadline, "%Y-%m-%d").date()
+                    # Combine the date with the current time to fulfill the "time now" aspect
+                    now_time = dt.datetime.now(dt.timezone.utc).time()
+                    task_deadline_dt = dt.datetime.combine(d, now_time, tzinfo=dt.timezone.utc)
+                    task_deadline = task_deadline_dt.isoformat()
+                except (ValueError, TypeError):
+                    return {"status": "error", "message": "Invalid deadline format. Please use ISO format or YYYY-MM-DD."}
+
+        new_task = {
+            "id": len(session_state.tasks) + 1,
+            "description": task_description,
+            "status": "open",
+            "deadline": task_deadline,
+            "created_at": dt.datetime.now(dt.timezone.utc).isoformat()
+        }
+        session_state.tasks.append(new_task)
+        save_tasks(session_state.tasks)
+        logger.info(f"Task added: {new_task}")
+        return {"status": "success", "message": f"Task added: '{task_description}'", "task": new_task}
+
+    elif action == "update":
+        if task_id is None or task_status is None:
+            return {"status": "error", "message": "Task ID and status are required to update a task."}
+        task_found = False
+        for task in session_state.tasks:
+            if task["id"] == task_id:
+                task["status"] = task_status
+                task_found = True
+                save_tasks(session_state.tasks)
+                logger.info(f"Task {task_id} updated to {task_status}")
+                # More descriptive success message
+                success_message = f"Okay, I've updated Task {task['id']}: '{task['description']}' to '{task_status}'."
+                return {"status": "success", "message": success_message, "task": task}
+        if not task_found:
+            return {"status": "error", "message": f"Task with ID {task_id} not found."}
+
+    elif action == "list":
+        # Filter for open and in_progress tasks
+        active_tasks = [task for task in session_state.tasks if task.get("status") in ["open", "in_progress"]]
+        return {"status": "success", "tasks": active_tasks}
+
+    else:
+        return {"status": "error", "message": f"Unknown task action: {action}"}
+
+def add_log_entry_and_persist_impl(text_input: str, category_suggestion: str = None, session_state=None):
+    """
+    Core logic to process and log text input to st.session_state.input_log and save to CSV.
     """
     if session_state is None:
-        logger.error("Session state not provided to process_text_input_for_log_impl")
+        logger.error("Session state not provided to add_log_entry_and_persist_impl")
         return {"status": "error", "message": "Session state missing."}
 
     timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -140,16 +300,16 @@ def process_text_input_for_log_impl(text_input: str, category_suggestion: str = 
     if 'input_log' not in session_state:
         session_state.input_log = []
     session_state.input_log.append(log_entry)
+    save_input_log(session_state.input_log)
     logger.info(f"Input logged: {log_entry['content_preview']}")
     return {"status": "success", "message": f"Log added: '{log_entry['content_preview']}'", "entry": log_entry}
 
-def update_background_info_in_session_impl(background_update_json: str, session_state=None):
+def update_background_info_and_persist_impl(background_update_json: str, session_state=None):
     """
-    Updates background information in st.session_state.background_info.
-    (Simplified version for session state - attempts a basic merge or overwrite for 'user_provided_info')
+    Core logic to update background information in st.session_state.background_info and save to CSV.
     """
     if session_state is None:
-        logger.error("Session state not provided to update_background_info_in_session_impl")
+        logger.error("Session state not provided to update_background_info_and_persist_impl")
         return {"status": "error", "message": "Session state missing."}
 
     if 'background_info' not in session_state:
@@ -180,24 +340,39 @@ def update_background_info_in_session_impl(background_update_json: str, session_
         session_state.background_info["user_provided_info"] = background_update_json
         message = "Background information updated with free text."
 
+    # Save the updated background info to CSV
+    save_background_info(session_state.background_info)
+
     logger.info(f"Background info updated. Current: {session_state.background_info}")
     return {"status": "success", "message": message, "updated_info": session_state.background_info}
 
 
-# --- Placeholder functions (imported by app.py) ---
-# These will be called by the Streamlit app and will then call the _impl versions.
-# This structure allows for future expansion if needed (e.g., async calls, more complex logic).
+# --- App-Facing Functions ---
+# These are called directly by the Streamlit UI. They handle persistence.
 
-def process_text_input_for_log(text_input: str, session_state, category_suggestion: str = None):
-    """App-facing function to log text input."""
-    # For now, directly calls the implementation.
-    # In a more complex app, this might involve more steps or async handling.
-    return process_text_input_for_log_impl(text_input, category_suggestion, session_state)
+def add_log_entry_and_persist(text_input: str, session_state, category_suggestion: str = None):
+    """App-facing function to add a log entry and persist it."""
+    return add_log_entry_and_persist_impl(text_input, category_suggestion, session_state)
 
-def update_background_info_in_session(background_update_json: str, session_state): # Changed parameter name
-    """App-facing function to update background info."""
-    # For now, directly calls the implementation.
-    return update_background_info_in_session_impl(background_update_json, session_state) # Changed parameter name
+def update_background_info_and_persist(background_update_json: str, session_state):
+    """App-facing function to update background info and persist it."""
+    return update_background_info_and_persist_impl(background_update_json, session_state)
+
+def add_task_and_persist(task_description: str, session_state, deadline: str = None):
+    """App-facing function to add a new task and persist it."""
+    return manage_tasks_and_persist_impl(action="add", session_state=session_state, task_description=task_description, deadline=deadline)
+
+def update_tasks_and_persist(tasks_list: list, session_state):
+    """App-facing function to update the entire task list and persist it."""
+    session_state.tasks = tasks_list
+    save_tasks(session_state.tasks)
+    return {"status": "success", "message": "Tasks updated successfully."}
+
+def update_input_log_and_persist(log_list: list, session_state):
+    """App-facing function to update the entire input log and persist it."""
+    session_state.input_log = log_list
+    save_input_log(session_state.input_log)
+    return {"status": "success", "message": "Input log updated successfully."}
 
 
 # --- Chat Functions ---
@@ -210,39 +385,79 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     current_bg_info_str = json.dumps(session_state.get('background_info', {}), indent=2)
     recent_logs_preview = [log.get('content_preview', 'Log entry') for log in session_state.get('input_log', [])[-5:]] # Last 5 logs
     recent_logs_str = "\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
+    tasks_preview = [f"ID: {task['id']}, Desc: {task['description']}, Status: {task['status']}" for task in session_state.get('tasks', [])]
+    tasks_str = "\n- ".join(tasks_preview) if tasks_preview else "No tasks."
+    
+    now = dt.datetime.now(dt.timezone.utc)
+    current_time_str = now.isoformat()
+    current_weekday_str = now.strftime('%A')
 
     system_prompt = f"""
-    You are a helpful AI assistant. Your user is interacting with you through a multimodal chat interface.
-    You can process text and audio. You also have access to tools to log information and update user background.
+    Your role is to be a proactive and intelligent assistant, helping the user organize their thoughts, tasks, and personal information.
+    Listen carefully to the user's input to decide whether to respond directly, use one of your tools, or use multiple tools in combination.
 
-    CURRENT USER BACKGROUND INFO (stored in session):
-    ```json
-    {current_bg_info_str}
-    ```
-    (Use the `update_background_info_in_session` function if the user provides personal details, goals, values, or preferences.
-    When calling this function, provide a `background_update_json` argument which is a JSON string containing the extracted information to be updated, structured according to the schema below.)
+    CURRENT TIME:
+    - ISO Format: {current_time_str}
+    - Weekday: {current_weekday_str}
+
     Schema for background info (as a loose guideline, when the user provides updates):
     ```json
     {BACKGROUND_INFO_SCHEMA_EXAMPLE}
     ```
 
+    CURRENT USER BACKGROUND INFO (stored in session):
+    ```json
+    {current_bg_info_str}
+    ```
+
     RECENT USER LOGS (last 5, stored in session):
     - {recent_logs_str}
-    (Use the `process_text_input_for_log` function if the user makes a statement that should be logged.)
 
-    FUNCTION CALLING RULES:
-    1.  If the user provides a general statement, observation, thought, or event they want to record,
-        call `process_text_input_for_log` with their `text_input`. You can also suggest a `category_suggestion`.
-        Example: User says "The weather is nice today." -> Call `process_text_input_for_log` with text_input="The weather is nice today.", category_suggestion="Observation".
-    2.  If the user explicitly provides or modifies their personal details, goals, values, or preferences,
-        interpret their free-form text, extract the relevant information, structure it as a JSON string according to the schema,
-        and call `update_background_info_in_session` with the `background_update_json` argument containing this JSON string.
-        The JSON string you provide for `background_update_json` must be valid. If string values within your generated JSON contain special characters (like quotes, backslashes, newlines), ensure they are properly escaped (e.g., \" for quotes, \\\\ for backslashes, \\n for newlines).
-        Example: User says "My main goal now is to exercise more, and I live in Berlin." -> Call `update_background_info_in_session` with background_update_json='{{"goals": ["Exercise more"], "user_profile": {{"location": {{"city": "Berlin"}}}}}}'.
-        Example with escaping: User says "My note is about \"quotes\" and backslashes \\." -> Call `update_background_info_in_session` with background_update_json='{{"user_provided_info": "My note is about \\\"quotes\\\" and backslashes \\\\."}}'.
-    3.  You can call multiple functions if appropriate. For example, if a user says "I learned that my value is 'kindness' and I want to log that I had a good day", you could call both functions.
-    4.  After a function call, I will provide you with the result. You should then formulate a natural language response to the user based on that result and the conversation context.
-    5.  If no function call is needed, respond directly to the user's query or statement.
+    CURRENT TASKS (stored in session):
+    - {tasks_str}
+
+    --- FUNCTION CALLING RULES ---
+
+    1.  **Call `add_log_entry` when:**
+        - The user provides any general statement, observation, thought, or event they want to record.
+        - If the input also contains information for other function calls (like creating a task or updating background info), call `add_log_entry` IN ADDITION to the other relevant functions.
+        - Example: "I'm planning to finish the report by Friday, and I'm feeling good about it." -> Call `add_log_entry` AND `manage_tasks`.
+        - Example: "I just finished the presentation slides. I also realized my core value is continuous learning." -> Call `add_log_entry`, `manage_tasks` (to update), AND `update_background_info`.
+        - Non-Example: "What are my tasks?" -> DO NOT call `add_log_entry`. Call `manage_tasks` with action='list' ONLY.
+        - Non-Example: "My name is Mike." -> DO NOT call `add_log_entry`. Call `update_background_info` ONLY.
+
+    2.  **Call `update_background_info` when:**
+        - The user provides personal information (e.g., name, age, location), or updates their goals, values, challenges, or habits.
+        - This function should be called even if the input is also being logged by `add_log_entry`.
+        - You must interpret the user's text and construct a valid, escaped JSON string for the `background_update_json` argument.
+        - Example: "My new goal is to learn Python." -> Call `update_background_info` with `background_update_json='{{"goals": ["Learn Python"]}}'`.
+        - Example: "I've been reflecting and realized my main value is 'impact'." -> Call `add_log_entry` AND `update_background_info` with `background_update_json='{{"values": ["impact"]}}'`.
+
+    3.  **Call `manage_tasks` when:**
+        - The user wants to add, update, or list tasks.
+        - **Add Task (`action='add'`):** Use for explicit requests ("add a task...") AND for statements of future intent ("I will...", "I need to...", "I plan to...").
+            - You MUST infer deadlines from text like "tomorrow", "by Friday at 5pm", or "on Dec 25th" and convert them to an ISO string for the `deadline` argument.
+            - Example (Intent): "I'm going to draft the project proposal this afternoon." -> Call `manage_tasks` with `action='add'`, `task_description='Draft the project proposal'`, and an inferred `deadline`.
+        - **Update Task (`action='update'`):** Use for explicit requests ("mark task 1 as done") AND for statements of progress or completion ("I finished the report", "I worked on the slides").
+            - You need to infer the `task_id` and the `task_status` ('completed' or 'in_progress').
+            - Example (Implicit Completion): "Just got back from my run." -> If a "Go for a run" task exists, call `manage_tasks` with `action='update'`, the correct `task_id`, and `task_status='completed'`.
+        - **List Tasks (`action='list'`):** Use when the user asks to see their tasks.
+
+    --- MULTI-FUNCTION CALL EXAMPLES ---
+    -   **User Input:** "Feeling productive today! I'm going to draft the project proposal this morning. This new focus on time blocking is really helping my productivity."
+        -   Call `add_log_entry` with the full text.
+        -   AND Call `manage_tasks` with `action='add'`, `task_description='Draft the project proposal'`, and an inferred `deadline`.
+
+    -   **User Input:** "I just finished the presentation slides! That took longer than expected. I also realized my main goal for this month should be to improve my design skills."
+        -   Call `add_log_entry` with the full text.
+        -   AND Call `manage_tasks` with `action='update'` to mark the presentation task as 'completed'.
+        -   AND Call `update_background_info` with `background_update_json='{{"goals": ["Improve my design skills"]}}'`.
+
+    --- RESPONSE GUIDELINES ---
+    -   Use function calls proactively and intelligently. Combine them in a single turn when appropriate.
+    -   Always provide a brief, natural language text response to acknowledge the user's input, even when calling functions.
+    -   If you call functions, the final text response should summarize what you've done (e.g., "Okay, I've added that to your log and created a new task for you.").
+    -   If no function call is needed, just respond directly to the user.
     """
 
     contents = [] # Initialize contents as an empty list
@@ -319,91 +534,124 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     final_text_response_to_user = ""
     ui_update_message = None # For messages like "Log added!"
 
-    # Check for function calls
-    if candidate.content.parts and candidate.content.parts[0].function_call:
-        fc = candidate.content.parts[0].function_call
-        function_name = fc.name
-        function_args = dict(fc.args)
-        logger.info(f"LLM requested function call: {function_name} with args: {function_args}")
+    # --- Process LLM Response: Text and Function Calls ---
+    ui_update_messages = [] # To hold messages from multiple function calls
+    model_turn_content_for_history = []
+    function_calls_exist = any(hasattr(part, "function_call") and part.function_call for part in candidate.content.parts)
 
-        # Extract any text parts from the LLM's response that decided to call a function
-        initial_llm_text_parts = []
+    # First, extract any initial text response from the LLM.
+    initial_llm_text_parts = [part.text for part in candidate.content.parts if hasattr(part, "text") and part.text]
+    final_text_response_to_user = " ".join(initial_llm_text_parts).strip()
+
+    if final_text_response_to_user:
+        model_turn_content_for_history.append({"text": final_text_response_to_user})
+
+    # If there are function calls, process them.
+    if function_calls_exist:
+        # Iterate through all parts to find and execute all function calls
         for part in candidate.content.parts:
-            if hasattr(part, "text") and part.text:
-                initial_llm_text_parts.append(part.text)
-        
-        final_text_response_to_user = " ".join(initial_llm_text_parts).strip()
+            if hasattr(part, "function_call") and part.function_call:
+                fc = part.function_call
+                function_name = fc.name
+                function_args = dict(fc.args)
+                logger.info(f"LLM requested function call: {function_name} with args: {function_args}")
 
-        # Add LLM's intent to call function to history
-        # The content for the history should represent the model's turn accurately.
-        # If the model's turn included text and a function call, both should be there.
-        model_turn_content_for_history = []
-        if final_text_response_to_user:
-             model_turn_content_for_history.append({"text": final_text_response_to_user})
-        model_turn_content_for_history.append({"function_call": fc})
+                # Add the function call to the history list for this turn
+                model_turn_content_for_history.append({"function_call": fc})
+
+                # --- Execute the function ---
+                function_response_content = {}
+                ui_message_for_this_call = None
+                if function_name == "add_log_entry":
+                    result = add_log_entry_and_persist_impl(
+                        text_input=function_args.get("text_input"),
+                        category_suggestion=function_args.get("category_suggestion"),
+                        session_state=session_state
+                    )
+                    function_response_content = result
+                    if result.get("status") == "success":
+                        ui_message_for_this_call = result.get("message")
+
+                elif function_name == "update_background_info":
+                    result = update_background_info_and_persist_impl(
+                        background_update_json=function_args.get("background_update_json"),
+                        session_state=session_state
+                    )
+                    function_response_content = result
+                    if result.get("status") == "success":
+                        ui_message_for_this_call = result.get("message")
+
+                elif function_name == "manage_tasks":
+                    result = manage_tasks_and_persist_impl(
+                        action=function_args.get("action"),
+                        session_state=session_state,
+                        task_description=function_args.get("task_description"),
+                        task_id=function_args.get("task_id"),
+                        task_status=function_args.get("task_status"),
+                        deadline=function_args.get("deadline")
+                    )
+                    function_response_content = result
+                    if result.get("status") == "success":
+                        if result.get("tasks"):
+                            tasks = result.get("tasks")
+                            if tasks:
+                                formatted_tasks = ["These are your current open tasks:"]
+                                for task in tasks:
+                                    deadline_str = ""
+                                    if task.get("deadline"):
+                                        try:
+                                            # Parse ISO string and format it
+                                            deadline_dt = dt.datetime.fromisoformat(task["deadline"].replace("Z", "+00:00"))
+                                            deadline_str = f", Deadline: {deadline_dt.strftime('%Y-%m-%d %H:%M')}"
+                                        except (ValueError, TypeError):
+                                            deadline_str = f", Deadline: {task.get('deadline')}" # Fallback
+                                    formatted_tasks.append(
+                                        f"- **Task {task['id']}**: {task['description']} (Status: {task['status']}{deadline_str})"
+                                    )
+                                ui_message_for_this_call = "\n".join(formatted_tasks)
+                            else:
+                                ui_message_for_this_call = "You have no open tasks."
+                        else:
+                            ui_message_for_this_call = result.get("message")
+                else:
+                    logger.warning(f"LLM called unknown function: {function_name}")
+                    function_response_content = {"status": "error", "message": f"Unknown function: {function_name}"}
+                    ui_message_for_this_call = f"Error: Unknown function '{function_name}' called."
+
+                if ui_message_for_this_call:
+                    ui_update_messages.append(ui_message_for_this_call)
+
+                # Add function execution result to history for the *next* turn's context
+                conversation_history.append({
+                    "role": "function",
+                    "content": [{"function_response": {"name": function_name, "response": function_response_content}}]
+                })
+        
+        # Combine initial text with messages from all function calls
+        if ui_update_messages:
+            aggregated_ui_messages = "\n\n".join(ui_update_messages)
+            if final_text_response_to_user:
+                final_text_response_to_user += f"\n\n{aggregated_ui_messages}"
+            else:
+                final_text_response_to_user = aggregated_ui_messages
+        elif not final_text_response_to_user: # Fallback if no initial text and no UI messages
+            final_text_response_to_user = "I've processed your request."
+
+    # Add the complete model turn (text + all function calls) to history
+    if model_turn_content_for_history:
         conversation_history.append({"role": "model", "content": model_turn_content_for_history})
 
-        function_response_content = {}
-        if function_name == "process_text_input_for_log":
-            result = process_text_input_for_log_impl(
-                text_input=function_args.get("text_input"),
-                category_suggestion=function_args.get("category_suggestion"),
-                session_state=session_state
-            )
-            function_response_content = result
-            if result.get("status") == "success":
-                ui_update_message = result.get("message") # This is for the UI toast/message
+    # Handle case where there was no function call and no text response
+    if not function_calls_exist and not final_text_response_to_user:
+        logger.warning("LLM response had no function calls and no text in parts.")
+        final_text_response_to_user = "I'm not sure how to respond to that."
+        conversation_history.append({"role": "model", "content": final_text_response_to_user})
 
-        elif function_name == "update_background_info_in_session":
-            result = update_background_info_in_session_impl(
-                background_update_json=function_args.get("background_update_json"), # Corrected param name
-                session_state=session_state
-            )
-            function_response_content = result
-            if result.get("status") == "success":
-                ui_update_message = result.get("message") # This is for the UI toast/message
-        else:
-            logger.warning(f"LLM called unknown function: {function_name}")
-            function_response_content = {"status": "error", "message": f"Unknown function: {function_name}"}
-            ui_update_message = f"Error: Unknown function '{function_name}' called."
-
-        # Add function execution result to history (for LLM's context in future turns if needed)
-        conversation_history.append({
-            "role": "function", 
-            "content": [{"function_response": {"name": function_name, "response": function_response_content}}]
-        })
-
-        # Construct final response to user by combining initial LLM text and function UI message
-        if ui_update_message:
-            if final_text_response_to_user: # If LLM gave some initial text
-                final_text_response_to_user += f"\n\n{ui_update_message}"
-            else: # If LLM only called a function without preceding text
-                final_text_response_to_user = ui_update_message
-        elif not final_text_response_to_user: # Fallback if no initial text and no UI message
-            final_text_response_to_user = "I've processed that."
-            
-    else: # No function call, direct text response from LLM
-        if candidate.content.parts:
-            for part in candidate.content.parts:
-                if hasattr(part, "text") and part.text:
-                    final_text_response_to_user += part.text
-            conversation_history.append({"role": "model", "content": final_text_response_to_user})
-        else:
-            logger.warning("LLM response had no parts or no text in parts.")
-            final_text_response_to_user = "I'm not sure how to respond to that."
-            conversation_history.append({"role": "model", "content": final_text_response_to_user})
-
-    # Ensure there's always some response text
-    if not final_text_response_to_user.strip():
-        final_text_response_to_user = "Processed."
-        # If history already has the model turn from function call path, don't add again.
-        # Only add if it was a direct text response path that somehow ended up empty.
-        if not (candidate.content.parts and candidate.content.parts[0].function_call):
-             conversation_history.append({"role": "model", "content": final_text_response_to_user})
-
+    # The UI message for toast/notification can be the aggregation of all messages
+    ui_update_message = "\n".join(ui_update_messages) if ui_update_messages else None
 
     logger.info(f"Final text response to user: {final_text_response_to_user}")
     if ui_update_message:
-        logger.info(f"UI update message: {ui_update_message}")
+        logger.info(f"Aggregated UI update message: {ui_update_message}")
 
     return {"text_response": final_text_response_to_user, "ui_message": ui_update_message}
