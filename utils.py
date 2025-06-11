@@ -6,6 +6,7 @@ import pandas as pd
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from sqlalchemy.orm.attributes import flag_modified
 
 from database import SessionLocal
 from models import User, TextInput, BackgroundInfo, Task
@@ -191,6 +192,32 @@ def load_background_info(db, user_id):
     background_info = db.query(BackgroundInfo).filter(BackgroundInfo.user_id == user_id).order_by(BackgroundInfo.created_at.desc()).first()
     return background_info.content if background_info else {}
 
+# --- Helper Functions for Serialization ---
+def task_to_dict(task: Task) -> dict:
+    """Converts a Task SQLAlchemy object to a dictionary."""
+    if not task:
+        return None
+    return {
+        "id": task.id,
+        "user_id": task.user_id,
+        "description": task.description,
+        "status": task.status,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "deadline": task.deadline.isoformat() if task.deadline else None,
+    }
+
+def log_entry_to_dict(log_entry: TextInput) -> dict:
+    """Converts a TextInput SQLAlchemy object to a dictionary."""
+    if not log_entry:
+        return None
+    return {
+        "id": log_entry.id,
+        "user_id": log_entry.user_id,
+        "content": log_entry.content,
+        "category": log_entry.category,
+        "created_at": log_entry.created_at.isoformat() if log_entry.created_at else None,
+    }
+
 # --- Core Implementation Functions (to be called by LLM-triggered functions) ---
 
 def manage_tasks_and_persist_impl(action: str, user: User, task_description: str = None, task_id: int = None, task_status: str = None, deadline: str = None):
@@ -219,13 +246,13 @@ def manage_tasks_and_persist_impl(action: str, user: User, task_description: str
             user_id=user.id,
             description=task_description,
             status="open",
-            due_date=task_deadline,
+            deadline=task_deadline,
         )
         db.add(new_task)
         db.commit()
         db.refresh(new_task)
         logger.info(f"Task added: {new_task}")
-        return {"status": "success", "message": f"Task added: '{task_description}'", "task": new_task}
+        return {"status": "success", "message": f"Task added: '{task_description}'", "task": task_to_dict(new_task)}
 
     elif action == "update":
         if task_id is None or task_status is None:
@@ -238,13 +265,13 @@ def manage_tasks_and_persist_impl(action: str, user: User, task_description: str
             db.refresh(task)
             logger.info(f"Task {task_id} updated to {task_status}")
             success_message = f"Okay, I've updated Task {task.id}: '{task.description}' to '{task_status}'."
-            return {"status": "success", "message": success_message, "task": task}
+            return {"status": "success", "message": success_message, "task": task_to_dict(task)}
         else:
             return {"status": "error", "message": f"Task with ID {task_id} not found."}
 
     elif action == "list":
         active_tasks = db.query(Task).filter(Task.user_id == user.id, Task.status.in_(['open', 'in_progress'])).all()
-        return {"status": "success", "tasks": active_tasks}
+        return {"status": "success", "tasks": [task_to_dict(t) for t in active_tasks]}
 
     else:
         return {"status": "error", "message": f"Unknown task action: {action}"}
@@ -290,7 +317,7 @@ def add_log_entry_and_persist_impl(text_input: str, user: User, category_suggest
     
     content_preview = text_input[:100] + "..." if len(text_input) > 100 else text_input
     logger.info(f"Input logged: {content_preview}")
-    return {"status": "success", "message": f"Log added: '{content_preview}'", "entry": log_entry}
+    return {"status": "success", "message": f"Log added: '{content_preview}'", "entry": log_entry_to_dict(log_entry)}
 
 def update_background_info_and_persist_impl(background_update_json: str, user: User):
     """
@@ -317,6 +344,7 @@ def update_background_info_and_persist_impl(background_update_json: str, user: U
         updated_content = deep_update(current_content, update_data)
         
         background_info.content = updated_content
+        flag_modified(background_info, "content")  # Mark the JSON field as modified
         db.commit()
         db.refresh(background_info)
         
@@ -364,7 +392,7 @@ def update_tasks_and_persist(tasks_list: list, user: User):
             if task:
                 task.description = task_data['description']
                 task.status = task_data['status']
-                task.due_date = task_data['deadline']
+                task.deadline = task_data['deadline']
     
     db.commit()
     return {"status": "success", "message": "Tasks updated successfully."}
