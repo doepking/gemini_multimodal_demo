@@ -177,16 +177,16 @@ if "last_audio_duration" not in st.session_state:
 
 # Initialize session state for input log, background info, and tasks from files
 if hasattr(st, 'user') and st.user.is_logged_in:
-    if 'user' not in st.session_state:
-        db = next(get_db())
-        st.session_state.user = get_or_create_user(db, st.user.email, st.user.name)
+    db = next(get_db())
+    try:
+        user = get_or_create_user(db, st.user.email, st.user.name)
+        st.session_state.user = user
+        st.session_state.input_log = load_input_log(db, user.id)
+        st.session_state.background_info = load_background_info(db, user.id)
+        st.session_state.tasks = load_tasks(db, user.id)
+    finally:
+        db.close()
 
-    if 'input_log' not in st.session_state:
-        st.session_state.input_log = load_input_log(st.session_state.user.id)
-    if 'background_info' not in st.session_state:
-        st.session_state.background_info = load_background_info(st.session_state.user.id)
-    if 'tasks' not in st.session_state:
-        st.session_state.tasks = load_tasks(st.session_state.user.id)
     if 'edit_background' not in st.session_state:
         st.session_state.edit_background = False
 
@@ -329,7 +329,7 @@ def calculate_activity_data(input_log, tasks):
         }
 
     df = pd.DataFrame(input_log)
-    df['date'] = pd.to_datetime(df['timestamp']).dt.date
+    df['date'] = pd.to_datetime(df['created_at']).dt.date
     
     todays_logs = df[df['date'] == today].shape[0]
 
@@ -772,7 +772,7 @@ with tab1:
             # Pass session state to get_chat_response for function calling
             response_data = get_chat_response(
                 st.session_state.conversation_history,
-                st.session_state, # Pass the whole session state
+                st.session_state,
                 user_prompt=prompt
             )
 
@@ -792,7 +792,7 @@ with tab2:
         st.info("No inputs logged yet.")
     else:
         # Sort logs by timestamp descending
-        sorted_logs = sorted(st.session_state.input_log, key=lambda x: x.get('timestamp', ''), reverse=True)
+        sorted_logs = sorted(st.session_state.input_log, key=lambda x: x.created_at, reverse=True)
 
         # Use a data editor to allow for changes
         edited_logs_df = st.data_editor(
@@ -802,19 +802,19 @@ with tab2:
             use_container_width=True,
             key="data_editor_logs",
             column_config={
-                "timestamp": st.column_config.Column("Timestamp", disabled=True),
-                "original_content": st.column_config.Column("Content"),
+                "created_at": st.column_config.Column("Timestamp", disabled=True),
+                "content": st.column_config.Column("Content"),
                 "category": st.column_config.Column("Category"),
                 "details": st.column_config.Column("Details"),
                 "content_preview": None, # Hide the preview column
             },
             # Reorder columns for better display
-            column_order=["timestamp", "original_content", "category", "details"]
+            column_order=["created_at", "content", "category", "details"]
         )
 
         if st.button("Save Log Changes"):
             updated_logs = edited_logs_df.to_dict('records')
-            result = update_input_log_and_persist(updated_logs, st.session_state)
+            result = update_input_log_and_persist(updated_logs, st.session_state.user)
             st.success(result.get("message", "Logs updated!"))
             st.rerun()
 
@@ -823,7 +823,7 @@ with tab2:
         submit_log = st.form_submit_button("Add to Log")
 
         if submit_log and new_log_content:
-            result = add_log_entry_and_persist(new_log_content, st.session_state)
+            result = add_log_entry_and_persist(new_log_content, st.session_state.user)
             st.success(result.get("message", "Log added successfully!"))
             st.rerun()
 
@@ -867,7 +867,7 @@ with tab3:
             # Convert deadline back to ISO string before saving
             edited_tasks_df['Deadline'] = edited_tasks_df['Deadline'].apply(lambda x: x.isoformat())
             updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Deadline": "deadline", "Created At": "created_at"}).to_dict('records')
-            result = update_tasks_and_persist(updated_tasks, st.session_state)
+            result = update_tasks_and_persist(updated_tasks, st.session_state.user)
             st.success(result.get("message", "Task changes saved!"))
             st.rerun()
 
@@ -892,7 +892,7 @@ with tab3:
             new_task_deadline_utc = new_task_deadline.astimezone(dt.timezone.utc)
             
             deadline_str = new_task_deadline_utc.isoformat()
-            result = add_task_and_persist(new_task_description, st.session_state, deadline=deadline_str)
+            result = add_task_and_persist(new_task_description, st.session_state.user, deadline=deadline_str)
             st.success(result.get("message", f"Task '{new_task_description}' added!"))
             st.rerun()
 
@@ -915,10 +915,14 @@ with tab4:
             if submitted:
                 try:
                     # The function expects a JSON string, so this works perfectly
-                    result = update_background_info_and_persist(background_text, st.session_state)
-                    st.success(result.get("message", "Background information updated!"))
-                    toggle_edit_mode() # Exit edit mode on success
-                    st.rerun()
+                    result = update_background_info_and_persist(background_text, st.session_state.user)
+                    if result.get("status") == "success":
+                        st.session_state.background_info = result["updated_info"]
+                        st.success(result.get("message", "Background information updated!"))
+                        toggle_edit_mode() # Exit edit mode on success
+                        st.rerun()
+                    else:
+                        st.error(result.get("message", "Failed to update background information."))
                 except json.JSONDecodeError:
                     st.error("Invalid JSON format. Please correct it and try again.")
                 except Exception as e:

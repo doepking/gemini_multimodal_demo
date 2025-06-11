@@ -181,27 +181,23 @@ def get_or_create_user(db, user_email: str, user_name: str) -> User:
         db.refresh(user)
     return user
 
-def load_input_log(user_id):
-    db = next(get_db())
+def load_input_log(db, user_id):
     return db.query(TextInput).filter(TextInput.user_id == user_id).all()
 
-def load_tasks(user_id):
-    db = next(get_db())
+def load_tasks(db, user_id):
     return db.query(Task).filter(Task.user_id == user_id).all()
 
-def load_background_info(user_id):
-    db = next(get_db())
-    background_info = db.query(BackgroundInfo).filter(BackgroundInfo.user_id == user_id).first()
+def load_background_info(db, user_id):
+    background_info = db.query(BackgroundInfo).filter(BackgroundInfo.user_id == user_id).order_by(BackgroundInfo.created_at.desc()).first()
     return background_info.content if background_info else {}
 
 # --- Core Implementation Functions (to be called by LLM-triggered functions) ---
 
-def manage_tasks_and_persist_impl(action: str, session_state, task_description: str = None, task_id: int = None, task_status: str = None, deadline: str = None):
+def manage_tasks_and_persist_impl(action: str, user: User, task_description: str = None, task_id: int = None, task_status: str = None, deadline: str = None):
     """
     Core logic to manage tasks in the database.
     """
     db = next(get_db())
-    user = get_or_create_user(db, session_state.user.email, session_state.user.name)
 
     if action == "add":
         if not task_description:
@@ -253,16 +249,15 @@ def manage_tasks_and_persist_impl(action: str, session_state, task_description: 
     else:
         return {"status": "error", "message": f"Unknown task action: {action}"}
 
-def add_log_entry_and_persist_impl(text_input: str, category_suggestion: str = None, session_state=None):
+def add_log_entry_and_persist_impl(text_input: str, user: User, category_suggestion: str = None):
     """
     Core logic to process and log text input to the database.
     """
-    if session_state is None:
-        logger.error("Session state not provided to add_log_entry_and_persist_impl")
-        return {"status": "error", "message": "Session state missing."}
+    if user is None:
+        logger.error("User not provided to add_log_entry_and_persist_impl")
+        return {"status": "error", "message": "User missing."}
 
     db = next(get_db())
-    user = get_or_create_user(db, session_state.user.email, session_state.user.name)
 
     log_entry = TextInput(
         user_id=user.id,
@@ -277,16 +272,15 @@ def add_log_entry_and_persist_impl(text_input: str, category_suggestion: str = N
     logger.info(f"Input logged: {content_preview}")
     return {"status": "success", "message": f"Log added: '{content_preview}'", "entry": log_entry}
 
-def update_background_info_and_persist_impl(background_update_json: str, session_state=None):
+def update_background_info_and_persist_impl(background_update_json: str, user: User):
     """
     Core logic to update background information in the database.
     """
-    if session_state is None:
-        logger.error("Session state not provided to update_background_info_and_persist_impl")
-        return {"status": "error", "message": "Session state missing."}
+    if user is None:
+        logger.error("User not provided to update_background_info_and_persist_impl")
+        return {"status": "error", "message": "User missing."}
 
     db = next(get_db())
-    user = get_or_create_user(db, session_state.user.email, session_state.user.name)
 
     try:
         update_data = json.loads(background_update_json)
@@ -325,22 +319,21 @@ def update_background_info_and_persist_impl(background_update_json: str, session
 # --- App-Facing Functions ---
 # These are called directly by the Streamlit UI. They handle persistence.
 
-def add_log_entry_and_persist(text_input: str, session_state, category_suggestion: str = None):
+def add_log_entry_and_persist(text_input: str, user: User, category_suggestion: str = None):
     """App-facing function to add a log entry and persist it."""
-    return add_log_entry_and_persist_impl(text_input, category_suggestion, session_state)
+    return add_log_entry_and_persist_impl(text_input, user, category_suggestion)
 
-def update_background_info_and_persist(background_update_json: str, session_state):
+def update_background_info_and_persist(background_update_json: str, user: User):
     """App-facing function to update background info and persist it."""
-    return update_background_info_and_persist_impl(background_update_json, session_state)
+    return update_background_info_and_persist_impl(background_update_json, user)
 
-def add_task_and_persist(task_description: str, session_state, deadline: str = None):
+def add_task_and_persist(task_description: str, user: User, deadline: str = None):
     """App-facing function to add a new task and persist it."""
-    return manage_tasks_and_persist_impl(action="add", session_state=session_state, task_description=task_description, deadline=deadline)
+    return manage_tasks_and_persist_impl(action="add", user=user, task_description=task_description, deadline=deadline)
 
-def update_tasks_and_persist(tasks_list: list, session_state):
+def update_tasks_and_persist(tasks_list: list, user: User):
     """App-facing function to update the entire task list and persist it."""
     db = next(get_db())
-    user = get_or_create_user(db, session_state.user.email, session_state.user.name)
     
     for task_data in tasks_list:
         task = db.query(Task).filter(Task.id == task_data['id'], Task.user_id == user.id).first()
@@ -352,10 +345,9 @@ def update_tasks_and_persist(tasks_list: list, session_state):
     db.commit()
     return {"status": "success", "message": "Tasks updated successfully."}
 
-def update_input_log_and_persist(log_list: list, session_state):
+def update_input_log_and_persist(log_list: list, user: User):
     """App-facing function to update the entire input log and persist it."""
     db = next(get_db())
-    user = get_or_create_user(db, session_state.user.email, session_state.user.name)
 
     for log_data in log_list:
         log = db.query(TextInput).filter(TextInput.id == log_data['id'], TextInput.user_id == user.id).first()
@@ -374,10 +366,14 @@ def start_new_chat():
 
 def get_chat_response(conversation_history, session_state, user_prompt=None, audio_file_path=None):
     """Gets a response from the Gemini model, handling text, audio, and function calls."""
-    current_bg_info_str = json.dumps(session_state.get('background_info', {}), indent=2)
-    recent_logs_preview = [log.get('content_preview', 'Log entry') for log in session_state.get('input_log', [])[-5:]] # Last 5 logs
+    user = session_state.get('user')
+    background_info = session_state.get('background_info', {})
+    input_log = session_state.get('input_log', [])
+    tasks = session_state.get('tasks', [])
+    current_bg_info_str = json.dumps(background_info, indent=2)
+    recent_logs_preview = [log.get('content_preview', 'Log entry') for log in input_log[-5:]] # Last 5 logs
     recent_logs_str = "\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
-    tasks_preview = [f"ID: {task['id']}, Desc: {task['description']}, Status: {task['status']}" for task in session_state.get('tasks', [])]
+    tasks_preview = [f"ID: {task['id']}, Desc: {task['description']}, Status: {task['status']}" for task in tasks]
     tasks_str = "\n- ".join(tasks_preview) if tasks_preview else "No tasks."
     
     now = dt.datetime.now(dt.timezone.utc)
@@ -557,8 +553,8 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
                 if function_name == "add_log_entry":
                     result = add_log_entry_and_persist_impl(
                         text_input=function_args.get("text_input"),
-                        category_suggestion=function_args.get("category_suggestion"),
-                        session_state=session_state
+                        user=user,
+                        category_suggestion=function_args.get("category_suggestion")
                     )
                     function_response_content = result
                     if result.get("status") == "success":
@@ -567,7 +563,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
                 elif function_name == "update_background_info":
                     result = update_background_info_and_persist_impl(
                         background_update_json=function_args.get("background_update_json"),
-                        session_state=session_state
+                        user=user
                     )
                     function_response_content = result
                     if result.get("status") == "success":
@@ -576,7 +572,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
                 elif function_name == "manage_tasks":
                     result = manage_tasks_and_persist_impl(
                         action=function_args.get("action"),
-                        session_state=session_state,
+                        user=user,
                         task_description=function_args.get("task_description"),
                         task_id=function_args.get("task_id"),
                         task_status=function_args.get("task_status"),
