@@ -180,7 +180,8 @@ def generate_calendar_html(today, dates_with_inputs):
         .calendar-grid {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
-            gap: 2px;
+            row-gap: 4px;
+            column-gap: 2px;
             margin-bottom: 10px;
         }
         .calendar-day-box {
