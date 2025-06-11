@@ -125,6 +125,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.dev
 .venv
 env/
 venv/
@@ -166,6 +167,4 @@ cython_debug/
 # Project specific
 data*
 *.json
-deploy.sh
-build.sh
 .streamlit/secrets.toml
