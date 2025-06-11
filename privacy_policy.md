@@ -2,54 +2,78 @@
 
 **Last Updated:** 2025-06-11
 
-This Privacy Policy describes how the Gemini Multimodal Demo application ("the App") collects, uses, and handles your information.
+This Privacy Policy describes how the AI-enabled Life Tracker application ("the App," "we," "us," or "our") collects, uses, and handles your personal data. We are committed to protecting your privacy and ensuring that your personal data is handled in a safe and responsible manner, in compliance with the General Data Protection Regulation (GDPR).
 
-## 1. Information We Collect
+## 1. Data Controller
 
-The App is designed to persist data locally on the machine where it is run. We do not have a central server that collects your data. The following data is collected and stored in the `data/` directory of the project:
+The data controller responsible for your personal data is:
 
-*   **Google User Information:** When you authenticate, we receive your basic Google profile information, including your **name**, **email address**, and **profile picture**. This is used for display purposes within the app and to associate data with your profile.
-*   **Chat History:** The conversation history with the Gemini AI is stored to provide context for ongoing conversations. This includes both your text and audio inputs.
-*   **Input Logs (`input_logs.csv`):** Any thoughts, observations, or general text you explicitly log. This includes the content, a timestamp, and any category assigned by you or the AI.
-*   **Tasks (`tasks.csv`):** Tasks you create, including their description, status (e.g., 'open', 'completed'), creation date, and deadline.
-*   **Background Information (`background_information.json`):** Information you provide about yourself to personalize the AI's responses. This can include your goals, values, preferences, and other personal details as a JSON object.
-*   **Audio Files:** Audio inputs are temporarily saved as `.wav` files for processing by the Gemini API and are deleted immediately after.
+[Your Name / Company Name]
+[Your Street Address]
+[Your City, Postal Code]
+[Your Country]
+**Email:** [Your Contact Email Address for Privacy Inquiries]
 
-## 2. How We Use Your Information
+## 2. Legal Basis for Data Processing
 
-Your information is used for the following purposes:
+We process your personal data based on your **explicit consent**. When you first access the App, you are presented with a consent banner that explains our data practices. By clicking "Accept," you consent to the collection, storage, and processing of your data as described in this policy. You can withdraw this consent at any time.
 
-*   **To Provide and Personalize the Service:** Your background information, chat history, and logs are used by the Gemini model to provide more relevant, context-aware, and personalized responses.
-*   **To Enable Application Features:**
-    *   Your Google profile information is used to identify you within the app.
-    *   Input logs, tasks, and background info are stored so you can view, edit, and manage them across sessions.
-*   **To Improve the Application:** By understanding how the AI uses function calling to manage your data, we can improve the tool's capabilities (this analysis happens locally).
+## 3. Information We Collect
 
-## 3. Data Storage and Security
+We collect and process the following types of personal data, which are stored securely in a Google Cloud SQL database:
 
-All data listed above is stored in files within the `data/` directory on the local filesystem where the application is running (e.g., your personal computer or a server you control).
+*   **Identity & Contact Data:** When you authenticate using Google OAuth, we collect your **name**, **email address**, and **profile picture**.
+*   **User-Generated Content:**
+    *   **Text Inputs:** Any thoughts, observations, or general text you log via the chat or input forms.
+    *   **Tasks:** Descriptions, statuses, deadlines, and completion dates of tasks you create.
+    *   **Background Information:** Personal context you provide to tailor the AI's responses, such as your goals, values, and preferences. This is stored in a structured JSON format.
+    *   **Newsletter Logs:** A record of the content of newsletters that have been sent to you.
+*   **Technical Data:**
+    *   **Audio Files:** Audio inputs are processed to text and are not stored long-term. They are handled in-memory or as temporary files that are deleted immediately after transcription.
 
-*   **No Cloud Storage:** We do not store your personal data, logs, tasks, or background information in a central cloud database.
-*   **Local Control:** You have direct control over these files. You can view, edit, or delete them at any time by accessing the `data/` directory.
+## 4. How We Use Your Information
 
-## 4. Data Sharing and Third Parties
+Your personal data is used for the following purposes:
 
-We do not sell or share your personal information with third parties. However, please be aware of the following:
+*   **To Provide and Personalize the Service:** To operate the App, authenticate you, and use your background information and chat history to provide context-aware and personalized AI responses.
+*   **To Enable Application Features:** To allow you to create, view, edit, and manage your logs and tasks across sessions.
+*   **To Communicate with You:** To send you personalized newsletters with insights and analysis based on your data, if you choose to trigger this feature.
 
-*   **Google Gemini API:** Your chat inputs (text and audio) are sent to the Google Gemini API for processing to generate a response. You can review Google's API policies on their official website.
-*   **Google Authentication:** Authentication is handled via Google OAuth. We only request the minimum necessary scopes to identify you.
+## 5. Data Storage, Security, and International Transfers
 
-## 5. Your Rights and Data Control
+*   **Data Storage:** All your personal data is stored in a **Google Cloud SQL (PostgreSQL) database** located in the region specified in the application's environment variables (e.g., within the EU).
+*   **Data Security:** We implement technical and organizational measures to protect your data, including encrypted connections (SSL/TLS) to the database and access controls.
+*   **International Transfers:** Your data is processed by third-party services (sub-processors) that may be located outside the European Economic Area (EEA). We ensure that such transfers are lawful and that your data is protected by appropriate safeguards, such as Standard Contractual Clauses (SCCs).
 
-You have full control over your data:
+## 6. Data Sharing and Third-Party Services (Sub-processors)
 
-*   **Access and Edit:** You can access and edit all your logged data (Input Logs, Tasks, Background Info) directly within the application's UI.
-*   **Deletion:** You can delete individual items from the UI. You can also delete the corresponding `.csv` and `.json` files from the `data/` directory to permanently remove all associated data.
+We do not sell your personal data. We use the following third-party services to provide the App's functionality:
 
-## 6. Changes to This Privacy Policy
+*   **Google Cloud Platform (GCP):** Provides the hosting infrastructure (Cloud Run) and the database (Cloud SQL).
+*   **Google Gemini API:** Processes your chat inputs (text and audio) to generate AI responses.
+*   **Google OAuth:** Handles user authentication.
+*   **SMTP Provider:** An email service (e.g., Gmail, SendGrid) is used to send you newsletters.
 
-We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page.
+## 7. Your Rights Under GDPR
 
-## 7. Contact Us
+As a user, you have the following rights regarding your personal data:
 
-If you have any questions about this Privacy Policy, please open an issue in the project's GitHub repository.
+*   **Right to Access:** You can request a copy of the personal data we hold about you.
+*   **Right to Rectification:** You can correct any inaccurate or incomplete data directly within the App's UI (e.g., in the "Input Log," "Tasks," and "Background Info" tabs).
+*   **Right to Erasure ("Right to be Forgotten"):** You can request the permanent deletion of your account and all associated data by using the "Withdraw Consent & Purge Data" feature in the application's sidebar. This action is irreversible.
+*   **Right to Withdraw Consent:** You can withdraw your consent at any time by purging your data, which will also log you out and reset the application's consent state.
+*   **Right to Data Portability:** You can request a copy of your data in a machine-readable format (e.g., JSON or CSV).
+
+To exercise any of these rights, please use the features provided in the App or contact us at the email address listed in the "Data Controller" section.
+
+## 8. Data Breach Notification
+
+In the event of a data breach that is likely to result in a high risk to your rights and freedoms, we will notify you and the relevant supervisory authority without undue delay, in accordance with our legal obligations.
+
+## 9. Changes to This Privacy Policy
+
+We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the "Last Updated" date.
+
+## 10. Contact Us
+
+If you have any questions about this Privacy Policy or our data protection practices, please contact us at the email address provided in the "Data Controller" section.
