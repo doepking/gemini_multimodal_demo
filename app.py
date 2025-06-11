@@ -9,6 +9,7 @@ import requests
 import base64
 import random
 from streamlit_extras.stylable_container import stylable_container
+import logging
 
 from utils import (
     get_chat_response,
@@ -33,6 +34,24 @@ st.set_page_config(
     page_icon=":clipboard:",
     layout="wide"
 )
+
+# Configure logging
+logger = logging.getLogger("app")
+if not logger.handlers:  # Prevent duplicate handlers if script reruns
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+# --- Database Initialization ---
+try:
+    init_db()
+    logger.info("Database initialization successful.")
+except Exception as e:
+    logger.error(f"Error initializing database: {e}", exc_info=True)
+    st.error("Error initializing database. Please check the logs.")
+    st.stop()
 
 # --- Consent State Initialization ---
 if 'consent_given' not in st.session_state:
@@ -158,8 +177,6 @@ if "last_audio_duration" not in st.session_state:
 
 # Initialize session state for input log, background info, and tasks from files
 if hasattr(st, 'user') and st.user.is_logged_in:
-    # Initialize the database
-    init_db()
     if 'user' not in st.session_state:
         db = next(get_db())
         st.session_state.user = get_or_create_user(db, st.user.email, st.user.name)
