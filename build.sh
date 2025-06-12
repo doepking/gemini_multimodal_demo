@@ -41,8 +41,11 @@ cp "${SECRETS_FILE}" "${TARGET_SECRETS_PATH}"
 
 # --- Cleanup function ---
 cleanup() {
-  echo "Cleaning up secrets file..."
-  rm "${TARGET_SECRETS_PATH}"
+  # Only remove the secrets file if it was a temporary copy for development
+  if [ "$ENV" == "d" ]; then
+    echo "Cleaning up temporary secrets file..."
+    rm "${TARGET_SECRETS_PATH}"
+  fi
 }
 
 # Trap EXIT signal to ensure cleanup runs
