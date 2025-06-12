@@ -165,6 +165,9 @@ cython_debug/
 #.idea/
 
 # Project specific
-data*
+data/
 *.json
 .streamlit/secrets.toml
+.streamlit/secrets.dev.toml
+impressum.md
+privacy_policy.md

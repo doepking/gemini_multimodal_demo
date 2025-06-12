@@ -32,33 +32,32 @@ safety_settings = [
 # --- Background Info Schema Example (Simplified for session state) ---
 BACKGROUND_INFO_SCHEMA_EXAMPLE = """
 {
+    // This schema is a loose guideline. None of the fields are strictly required.
+    // The assistant should only populate fields for which the user has provided information.
+    // It's a flexible key-value store that can be updated dynamically.
   "user_profile": {
-    "name": "String (e.g., Jane Doe)",
-    "age": "Integer (e.g., 30)",
-    "gender": "String (e.g., Female)",
-    "location": "Object (e.g., { 'city': 'New York', 'country': 'USA' })",
-    "occupation": "String (e.g., Software Engineer)",
-    "current_focus": "String (e.g., Learning to code, Improving health)",
-    "communication_style_preference": "String (e.g., direct, empathetic, concise)"
+    // Examples: "name": "Jane Doe", gender: "female", "age": 30, "location": { "city": "Munich", "country": "Germany" }, "preferred_language": "EN", "communication_style_preference": "brutally honest, direct, to the point", "occupation": "Software Engineer"
+    // Example: "name": "John Doe", gender: "male", "age": 35, "location": { "city": "Los Angeles", "country": "USA" }, "mbti_type": "INFJ", "preferred_language": "EN", "communication_style_preference": "friendly, patient, and kind"
   },
   "goals": [
-    "String (e.g., Complete a marathon by end of year)",
-    "String (e.g., Read 12 books this year)",
+    // Example: "Go to the gym 3 times a week for 1 hour each time for the next 6 months"
+    // Example: "Read 5 books in the next 2 months"
   ],
   "values": [
-    "String (e.g., Continuous learning)",
-    "String (e.g., Family)"
+    // Example: "Continuous learning"
+    // Example: "Healthy lifestyle"
+    // Example: "Financial stability"
+    // Example: "Personal growth"
   ],
   "challenges": [
-    "String (e.g., Work-life balance)",
-    "String (e.g., Health)",
-    "String (e.g., Finances)"
+    // Example: "Work-life balance"
+    // Example: "Stress management"
+    // Example: "Time management"
   ],
   "habits": [
-    "String (e.g., Daily planning)",
-    "String (e.g., Weekly review)",
-    "String (e.g., Daily meditation)"
-  ]
+    // Example: "Daily planning"
+  ],
+  // Add any other relevant information here
 }
 """
 
@@ -121,7 +120,7 @@ add_log_entry_func = types.Tool(
                     },
                     "category_suggestion": {
                         "type": "STRING",
-                        "description": "An optional category suggested by the LLM (e.g., 'Observation', 'Idea', 'Decision', 'Feeling'). Keep it simple.",
+                        "description": "An optional category suggested by the LLM. Use one of: 'Note', 'Decision', 'Action', 'Plan', 'Observation', 'Reflection', 'Feeling'.",
                     }
                 },
                 "required": ["text_input"],
@@ -312,7 +311,7 @@ def add_log_entry_and_persist_impl(text_input: str, user: User, category_suggest
     log_entry = TextInput(
         user_id=user.id,
         content=text_input,
-        category=category_suggestion if category_suggestion else "General Log",
+        category=category_suggestion if category_suggestion else "Note",
     )
     db.add(log_entry)
     db.commit()
@@ -478,10 +477,9 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     --- FUNCTION CALLING RULES ---
 
     1.  **Call `add_log_entry` when:**
-        - The user provides any general statement, observation, thought, or event they want to record.
-        - If the input also contains information for other function calls (like creating a task or updating background info), call `add_log_entry` IN ADDITION to the other relevant functions.
-        - Example: "I'm planning to finish the report by Friday, and I'm feeling good about it." -> Call `add_log_entry` AND `manage_tasks`.
-        - Example: "I just finished the presentation slides. I also realized my core value is continuous learning." -> Call `add_log_entry`, `manage_tasks` (to update), AND `update_background_info`.
+        - The user provides a statement about their life, thoughts, or activities that should be recorded for later review. This includes observations, feelings, decisions made, actions completed, or future plans.
+        - Example: "I'm planning to finish the report by Friday 3pm, and I'm feeling good about it." -> Call `add_log_entry` (category 'Plan' (or 'Feeling')) AND `manage_tasks`.
+        - Example: "I just finished the presentation slides. I also realized my core value is continuous learning." -> Call `add_log_entry` (category 'Action'), `manage_tasks` (to update), AND `update_background_info`.
         - Non-Example: "What are my tasks?" -> DO NOT call `add_log_entry`. Call `manage_tasks` with action='list' ONLY.
         - Non-Example: "My name is Mike." -> DO NOT call `add_log_entry`. Call `update_background_info` ONLY.
 
@@ -505,6 +503,14 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             - Example (Implicit Completion): "Just got back from my run." -> If a "Go for a run" task exists, call `manage_tasks` with `action='update'`, the correct `task_id`, and `task_status='completed'`.
         - **List Tasks (`action='list'`):** Use when the user asks to see their tasks.
 
+    4.  **When NOT to use a function call (and just respond with text):**
+        - The user asks a general question that you can answer from the provided context (e.g., "What was the last thing I logged?").
+        - The user is engaging in casual conversation (e.g., "How are you today?", "Thanks for your help!").
+        - The user's request is too vague or ambiguous to map to a specific tool (e.g., "I need to get my life in order."). In this case, respond conversationally and perhaps ask clarifying questions.
+        - Example: "I feel a bit overwhelmed today." -> This is a perfect opportunity for a direct, empathetic text response. You should also choose to log it with `add_log_entry` if it seems like a significant entry for the user, but a text response is essential.
+        - Example: "What's the weather like?" -> You don't have a weather tool. Respond naturally that you cannot provide that information.
+        - Example: "Can you give me some advice on productivity?" -> This is a good time for a direct text response, offering general advice. You don't need a tool for this.
+
     --- MULTI-FUNCTION CALL EXAMPLES ---
     -   **User Input:** "Feeling productive today! I'm going to draft the project proposal this morning. This new focus on time blocking is really helping my productivity."
         -   Call `add_log_entry` with the full text.
@@ -516,9 +522,9 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         -   AND Call `update_background_info` with `background_update_json='{{"goals": ["Improve my design skills"]}}'`.
 
     --- RESPONSE GUIDELINES ---
+    -   **IMPORTANT**: You MUST ALWAYS provide a text response to the user, even when you are making a function call. Your text response should be conversational and helpful. Acknowledge the user's input and confirm the actions you've taken via function calls. For example, if the user says "I live in Munich", you should call `update_background_info` AND respond with something like "Thanks for letting me know you live in Munich! I've updated your profile. What can I help you with?".
+    -   If the user's background information is sparse or empty (e.g., has fewer than 3-4 fields filled out), proactively ask questions to learn more about them (e.g., "I see I don't know much about you yet. Could you tell me a bit about your goals or what you do?").
     -   Use function calls proactively and intelligently. Combine them in a single turn when appropriate.
-    -   Always provide a brief, natural language text response to acknowledge the user's input, even when calling functions.
-    -   If you call functions, the final text response should summarize what you've done (e.g., "Okay, I've added that to your log and created a new task for you.").
     -   If no function call is needed, just respond directly to the user.
     """
 

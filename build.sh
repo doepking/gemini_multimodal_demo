@@ -3,6 +3,24 @@
 # Script to build the Docker image for the Gemini Multimodal Demo (Streamlit Frontend)
 
 # --- Configuration ---
+# Default to production environment
+ENV="p"
+if [ "$1" == "--dev" ]; then
+  ENV="d"
+fi
+
+# Load environment variables based on the environment
+if [ "$ENV" == "d" ]; then
+  ENV_FILE=".env.dev"
+  SECRETS_FILE=".streamlit/secrets.dev.toml"
+else
+  ENV_FILE=".env"
+  SECRETS_FILE=".streamlit/secrets.toml"
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/${ENV_FILE}"
+
 # Project ID from .env or environment
 PROJECT_ID="${GCP_PROJECT_ID:-fdap-1337}"
 
@@ -13,8 +31,25 @@ IMAGE_TAG="latest"
 # Google Container Registry (GCR) or Artifact Registry path
 IMAGE_URI="eu.gcr.io/${PROJECT_ID}/${IMAGE_NAME}:${IMAGE_TAG}"
 
+# --- Secrets Management ---
+TARGET_SECRETS_PATH=".streamlit/secrets.toml"
+if [ ! -f "${SECRETS_FILE}" ]; then
+    echo "ERROR: Secrets file not found at ${SECRETS_FILE}"
+    exit 1
+fi
+cp "${SECRETS_FILE}" "${TARGET_SECRETS_PATH}"
+
+# --- Cleanup function ---
+cleanup() {
+  echo "Cleaning up secrets file..."
+  rm "${TARGET_SECRETS_PATH}"
+}
+
+# Trap EXIT signal to ensure cleanup runs
+trap cleanup EXIT
+
 # --- Script ---
-echo "Building Docker image for Streamlit Frontend..."
+echo "Building Docker image for Streamlit Frontend (${ENV} environment)..."
 echo "Project ID: ${PROJECT_ID}"
 echo "Image URI: ${IMAGE_URI}"
 
