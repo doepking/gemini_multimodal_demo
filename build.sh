@@ -33,6 +33,14 @@ IMAGE_URI="eu.gcr.io/${PROJECT_ID}/${IMAGE_NAME}:${IMAGE_TAG}"
 
 # --- Secrets Management ---
 TARGET_SECRETS_PATH=".streamlit/secrets.toml"
+BACKUP_SECRETS_PATH=".streamlit/secrets.toml.bak"
+
+# For dev builds, backup production secrets if they exist
+if [ "$ENV" == "d" ] && [ -f "${TARGET_SECRETS_PATH}" ]; then
+  echo "Backing up production secrets to ${BACKUP_SECRETS_PATH}"
+  mv "${TARGET_SECRETS_PATH}" "${BACKUP_SECRETS_PATH}"
+fi
+
 if [ ! -f "${SECRETS_FILE}" ]; then
     echo "ERROR: Secrets file not found at ${SECRETS_FILE}"
     exit 1
@@ -45,6 +53,11 @@ cleanup() {
   if [ "$ENV" == "d" ]; then
     echo "Cleaning up temporary secrets file..."
     rm "${TARGET_SECRETS_PATH}"
+    # Restore production secrets if a backup exists
+    if [ -f "${BACKUP_SECRETS_PATH}" ]; then
+      echo "Restoring production secrets from ${BACKUP_SECRETS_PATH}"
+      mv "${BACKUP_SECRETS_PATH}" "${TARGET_SECRETS_PATH}"
+    fi
   fi
 }
 
