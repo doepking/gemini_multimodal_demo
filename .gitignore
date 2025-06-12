@@ -170,4 +170,5 @@ data/
 .streamlit/secrets.toml
 .streamlit/secrets.dev.toml
 impressum.md
+imprint.md
 privacy_policy.md
