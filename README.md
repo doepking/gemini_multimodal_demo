@@ -18,7 +18,7 @@ This project is a sophisticated, multimodal AI chat application using Google's G
     *   **Task Management:** A dedicated tab to view, add, delete, and edit tasks. Tasks can also be managed via chat.
     -   **Background Info:** A JSON-based view for providing and updating personal context (goals, values, etc.) to tailor AI responses.
 -   **Automated Newsletter Engine:** A "Newsletter" tab allows users to trigger a personalized email newsletter that provides insights and "nudges" based on their recent activity.
--   **Streamlined Deployment:** The entire application is containerized with Docker and deployed to Cloud Run using simple `build.sh` and `deploy.sh` scripts.
+-   **Streamlined Deployment:** The entire application is containerized with Docker and deployed to Cloud Run using unified `build.sh` and `deploy.sh` scripts that handle both **production** and **development** environments.
 
 ## Architecture Diagram
 
@@ -78,21 +78,40 @@ This application is designed for deployment on Google Cloud. Local execution is 
     cd gemini_multimodal_demo
     ```
 
-2.  **Create the `.env` file:**
-    -   Copy the `.env.example` to a new file named `.env`.
-    -   Fill in all the required values for your GCP project, Cloud SQL instance, Google OAuth credentials, and SMTP service.
+2.  **Set up Environment Files:**
+    This application uses separate configuration files for production and development environments.
 
-3.  **Build the Docker Image:**
-    -   Run the build script. This will build the Docker image and push it to your project's Google Container Registry.
-    ```bash
-    ./build.sh
-    ```
+    -   **Production (`.env` & `secrets.toml`):**
+        -   Copy `.env.example` to `.env`.
+        -   Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`.
+        -   Fill in all the required values in both files for your **production** GCP project, Cloud SQL instance, and other credentials.
+
+    -   **Development (`.env.dev` & `secrets.dev.toml`):**
+        -   Copy `.env.example` to `.env.dev`.
+        -   Copy `.streamlit/secrets.dev.toml.example` to `.streamlit/secrets.dev.toml`.
+        -   Fill in all the required values for your **development** environment.
+
+3.  **Build and Push the Docker Image:**
+    -   The `build.sh` script builds the Docker image and pushes it to your project's Google Container Registry. It automatically includes the correct Streamlit secrets file based on the environment.
+    -   **For Production:**
+        ```bash
+        ./build.sh
+        ```
+    -   **For Development:**
+        ```bash
+        ./build.sh --dev
+        ```
 
 4.  **Deploy to Cloud Run:**
-    -   Run the deployment script. This will deploy the container image from GCR to Cloud Run, configuring all necessary environment variables and connections.
-    ```bash
-    ./deploy.sh
-    ```
+    -   The `deploy.sh` script deploys the container image from GCR to Cloud Run, configuring all necessary environment variables from the correct `.env` file.
+    -   **For Production (will ask for confirmation):**
+        ```bash
+        ./deploy.sh
+        ```
+    -   **For Development (deploys without confirmation):**
+        ```bash
+        ./deploy.sh --dev
+        ```
     -   The script will output the URL of your deployed service.
 
 ## Usage
@@ -124,9 +143,10 @@ These files are not tracked by git to ensure you do not accidentally commit pers
 -   **`database.py`:** Configures the connection to the **Google Cloud SQL** database using the Cloud SQL Connector and SQLAlchemy.
 -   **`models.py`:** Defines the database schema using **SQLAlchemy ORM**, with tables for `User`, `TextInput`, `Task`, `BackgroundInfo`, and `NewsletterLog`.
 -   **`newsletter.py`:** Logic for generating and sending personalized email newsletters using an SMTP service.
--   **`build.sh`:** Script to build the application's Docker image and push it to Google Container Registry.
--   **`deploy.sh`:** Script to deploy the Docker image to **Google Cloud Run**, setting up all necessary environment variables and Cloud SQL connections.
--   **`.env.example`:** Template for the environment variables required to run the application.
+-   **`build.sh`:** Script to build the application's Docker image and push it to Google Container Registry. Handles both `prod` and `dev` environments (`--dev` flag).
+-   **`deploy.sh`:** Script to deploy the Docker image to **Google Cloud Run**. Handles both `prod` and `dev` environments (`--dev` flag).
+-   **`.env.example`, `.env.dev`:** Templates and files for environment variables (GCP settings, database connections, etc.).
+-   **`.streamlit/secrets.toml.example`, `.streamlit/secrets.dev.toml`:** Templates and files for Streamlit secrets (API keys, OAuth credentials).
 -   **`Dockerfile`:** Defines the container image for the application.
 
 ## LLM Interaction and Function Calling
