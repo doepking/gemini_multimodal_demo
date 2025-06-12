@@ -1,26 +1,38 @@
 #!/bin/bash
 
-# Script to deploy the Gemini Multimodal Demo (Streamlit Frontend) to a PROD environment
+# Script to deploy the Gemini Multimodal Demo (Streamlit Frontend)
 
 # --- Configuration ---
-SERVICE_NAME="life-tracker-p"
-IMAGE_NAME="life-tracker"
-IMAGE_TAG="latest"
+# Default to production environment
+ENV="p"
+if [ "$1" == "--dev" ]; then
+  ENV="d"
+fi
 
-# --- Environment File ---
-# Load environment variables from .env
+# Load environment variables based on the environment
+if [ "$ENV" == "d" ]; then
+  ENV_FILE=".env.dev"
+  SERVICE_NAME="life-tracker-d"
+else
+  ENV_FILE=".env"
+  SERVICE_NAME="life-tracker-p"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/.env"
+ENV_FILE_PATH="${SCRIPT_DIR}/${ENV_FILE}"
 
-if [ -f "${ENV_FILE}" ]; then
-  echo "Sourcing environment variables from ${ENV_FILE}"
+if [ -f "${ENV_FILE_PATH}" ]; then
+  echo "Sourcing environment variables from ${ENV_FILE_PATH}"
   set -a
-  source "${ENV_FILE}"
+  source "${ENV_FILE_PATH}"
   set +a
 else
-  echo "ERROR: .env file not found in ${SCRIPT_DIR}. Cannot proceed."
+  echo "ERROR: ${ENV_FILE} file not found at ${ENV_FILE_PATH}. Cannot proceed."
   exit 1
 fi
+
+IMAGE_NAME="life-tracker"
+IMAGE_TAG="latest"
 
 # --- GCP Settings ---
 PROJECT_ID="${GCP_PROJECT_ID}"
@@ -49,10 +61,12 @@ RUNTIME_SERVICE_ACCOUNT="${RUNTIME_SERVICE_ACCOUNT}"
 
 # --- Deployment ---
 echo "Deploying ${SERVICE_NAME} to Cloud Run in project ${PROJECT_ID}..."
-read -p "Are you sure you want to proceed with PROD deployment? (y/N): " confirmation
-if [[ "$confirmation" != "y" ]] && [[ "$confirmation" != "Y" ]]; then
-  echo "Deployment cancelled."
-  exit 0
+if [ "$ENV" == "p" ]; then
+  read -p "Are you sure you want to proceed with PROD deployment? (y/N): " confirmation
+  if [[ "$confirmation" != "y" ]] && [[ "$confirmation" != "Y" ]]; then
+    echo "Deployment cancelled."
+    exit 0
+  fi
 fi
 
 gcloud run deploy "${SERVICE_NAME}" \

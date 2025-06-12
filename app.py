@@ -461,13 +461,12 @@ elif st.session_state.consent_given is True and not (hasattr(st.user, 'is_logged
             - **Input Log:** Keep a record of your thoughts, decisions, and actions in a structured format.
             - **Background Info:** Provide context about yourself (goals, values, etc.) to help the AI understand you better.
             - **Task Management:** Create and manage tasks, which can be updated by the AI based on your conversation.
-            - **Data Persistence:** All your data is saved locally in the `data` directory.
+            - **Secure Data Storage:** All your data (inputs, tasks, background info) is securely stored in a **Google Cloud SQL** database.
 
             **What happens with my data?**
 
-            - You have complete control over your stored data.
-            - All data is stored locally on your machine.
-            - You can view, modify, or delete your data in the "Input Log", "Tasks", and "Background Info" sections.
+            - **Cloud-Based & Secure:** Your data is stored in a secure, private Google Cloud SQL database, protected by Google Cloud's robust security measures.
+            - **You Are in Control:** You have complete control over your data. You can view, edit, and permanently delete your informatin at any time through the app's interface.
             """
         )
 
