@@ -108,9 +108,11 @@ This application is designed for deployment on Google Cloud. Local execution is 
 
 ## Legal
 
-This application includes the following legal documents:
--   **`privacy_policy.md`**: Outlines the data handling and privacy practices of the application.
--   **`imprint.md`**: Provides the legal notice and contact information.
+This application requires you to set up your own legal documents. Example templates are provided:
+-   **`privacy_policy.md.example`**: A template for the privacy policy. Copy this to `privacy_policy.md` and fill in your details.
+-   **`imprint.md.example`**: A template for the imprint/legal notice. Copy this to `imprint.md` and fill in your details.
+
+These files are not tracked by git to ensure you do not accidentally commit personal information.
 
 ## Code Overview
 
