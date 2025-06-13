@@ -107,7 +107,7 @@ def show_consent_banner():
                 Please review the details before proceeding.
                 """)
 
-                with st.expander("View Details", expanded=True):
+                with st.expander("View Details", expanded=False):
                     st.subheader("Core Services Overview")
                     st.markdown("""
                     - **Authentication & Session Management**: We use essential services from Google and Streamlit to securely log you in and manage your session.
