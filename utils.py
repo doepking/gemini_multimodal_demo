@@ -575,9 +575,16 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     # --- First LLM Call (to decide on function call or direct response) ---
     logger.info(f"Sending request to LLM. Content length: {len(contents)}")
     try:
+        # Explicitly set tool_config to AUTO to let the model decide.
+        tool_config = types.ToolConfig(
+            function_calling_config=types.FunctionCallingConfig(
+                mode="AUTO"
+            )
+        )
         generation_config_with_tools = types.GenerateContentConfig(
             system_instruction=system_prompt,
             tools=[chat_tools],  # Tools included in the config
+            tool_config=tool_config, # Let the model intelligently decide to use tools
             max_output_tokens=2048,
             temperature=0.7,
             safety_settings=[
@@ -599,111 +606,115 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         return {"text_response": "Sorry, I couldn't generate a response.", "ui_message": None}
 
     candidate = response.candidates[0]
-    final_text_response_to_user = ""
-    ui_update_message = None # For messages like "Log added!"
 
     # --- Process LLM Response: Text and Function Calls ---
-    ui_update_messages = [] # To hold messages from multiple function calls
-    model_turn_content_for_history = []
+    llm_text_responses = []
+    function_calls_to_process = []
+    model_turn_content_for_history = [] # To store parts for history
     function_calls_exist = any(hasattr(part, "function_call") and part.function_call for part in candidate.content.parts)
 
-    # First, extract any initial text response from the LLM.
-    initial_llm_text_parts = [part.text for part in candidate.content.parts if hasattr(part, "text") and part.text]
-    final_text_response_to_user = " ".join(initial_llm_text_parts).strip()
+    # 1. First pass: Collect all text parts and function calls
+    for part in candidate.content.parts:
+        if hasattr(part, "text") and part.text:
+            llm_text_responses.append(part.text)
+        if hasattr(part, "function_call") and part.function_call:
+            function_calls_to_process.append(part.function_call)
 
-    if final_text_response_to_user:
-        model_turn_content_for_history.append({"text": final_text_response_to_user})
+    # Add the initial model response (text and function call requests) to history
+    # This captures the model's "thought process"
+    if llm_text_responses:
+        model_turn_content_for_history.append({"text": " ".join(llm_text_responses)})
+    if function_calls_to_process:
+        for fc in function_calls_to_process:
+             model_turn_content_for_history.append({"function_call": fc})
 
-    # If there are function calls, process them.
-    if function_calls_exist:
-        # Iterate through all parts to find and execute all function calls
-        for part in candidate.content.parts:
-            if hasattr(part, "function_call") and part.function_call:
-                fc = part.function_call
-                function_name = fc.name
-                function_args = dict(fc.args)
-                logger.info(f"LLM requested function call: {function_name} with args: {function_args}")
+    # 2. Execute function calls if any were requested
+    ui_update_messages = []
+    if function_calls_to_process:
+        for fc in function_calls_to_process:
+            function_name = fc.name
+            function_args = dict(fc.args)
+            logger.info(f"LLM requested function call: {function_name} with args: {function_args}")
 
-                # Add the function call to the history list for this turn
-                model_turn_content_for_history.append({"function_call": fc})
+            # --- Execute the function ---
+            function_response_content = {}
+            ui_message_for_this_call = None
+            if function_name == "add_log_entry":
+                result = add_log_entry_and_persist_impl(
+                    text_input=function_args.get("text_input"),
+                    user=user,
+                    category_suggestion=function_args.get("category_suggestion")
+                )
+                function_response_content = result
+                if result.get("status") == "success":
+                    ui_message_for_this_call = result.get("message")
 
-                # --- Execute the function ---
-                function_response_content = {}
-                ui_message_for_this_call = None
-                if function_name == "add_log_entry":
-                    result = add_log_entry_and_persist_impl(
-                        text_input=function_args.get("text_input"),
-                        user=user,
-                        category_suggestion=function_args.get("category_suggestion")
-                    )
-                    function_response_content = result
-                    if result.get("status") == "success":
-                        ui_message_for_this_call = result.get("message")
+            elif function_name == "update_background_info":
+                result = update_background_info_and_persist_impl(
+                    background_update_json=function_args.get("background_update_json"),
+                    user=user
+                )
+                function_response_content = result
+                if result.get("status") == "success":
+                    ui_message_for_this_call = result.get("message")
 
-                elif function_name == "update_background_info":
-                    result = update_background_info_and_persist_impl(
-                        background_update_json=function_args.get("background_update_json"),
-                        user=user
-                    )
-                    function_response_content = result
-                    if result.get("status") == "success":
-                        ui_message_for_this_call = result.get("message")
-
-                elif function_name == "manage_tasks":
-                    result = manage_tasks_and_persist_impl(
-                        action=function_args.get("action"),
-                        user=user,
-                        task_description=function_args.get("task_description"),
-                        task_id=function_args.get("task_id"),
-                        task_status=function_args.get("task_status"),
-                        deadline=function_args.get("deadline")
-                    )
-                    function_response_content = result
-                    if result.get("status") == "success":
-                        if result.get("tasks"):
-                            tasks = result.get("tasks")
-                            if tasks:
-                                formatted_tasks = ["These are your current open tasks:"]
-                                for task in tasks:
-                                    deadline_str = ""
-                                    if task.get("deadline"):
-                                        try:
-                                            # Parse ISO string and format it
-                                            deadline_dt = dt.datetime.fromisoformat(task["deadline"].replace("Z", "+00:00"))
-                                            deadline_str = f", Deadline: {deadline_dt.strftime('%Y-%m-%d %H:%M')}"
-                                        except (ValueError, TypeError):
-                                            deadline_str = f", Deadline: {task.get('deadline')}" # Fallback
-                                    formatted_tasks.append(
-                                        f"- **Task {task['id']}**: {task['description']} (Status: {task['status']}{deadline_str})"
-                                    )
-                                ui_message_for_this_call = "\n".join(formatted_tasks)
-                            else:
-                                ui_message_for_this_call = "You have no open tasks."
+            elif function_name == "manage_tasks":
+                result = manage_tasks_and_persist_impl(
+                    action=function_args.get("action"),
+                    user=user,
+                    task_description=function_args.get("task_description"),
+                    task_id=function_args.get("task_id"),
+                    task_status=function_args.get("task_status"),
+                    deadline=function_args.get("deadline")
+                )
+                function_response_content = result
+                if result.get("status") == "success":
+                    if result.get("tasks"):
+                        tasks = result.get("tasks")
+                        if tasks:
+                            formatted_tasks = ["These are your current open tasks:"]
+                            for task in tasks:
+                                deadline_str = ""
+                                if task.get("deadline"):
+                                    try:
+                                        deadline_dt = dt.datetime.fromisoformat(task["deadline"].replace("Z", "+00:00"))
+                                        deadline_str = f", Deadline: {deadline_dt.strftime('%Y-%m-%d %H:%M')}"
+                                    except (ValueError, TypeError):
+                                        deadline_str = f", Deadline: {task.get('deadline')}" # Fallback
+                                formatted_tasks.append(
+                                    f"- **Task {task['id']}**: {task['description']} (Status: {task['status']}{deadline_str})"
+                                )
+                            ui_message_for_this_call = "\n".join(formatted_tasks)
                         else:
-                            ui_message_for_this_call = result.get("message")
-                else:
-                    logger.warning(f"LLM called unknown function: {function_name}")
-                    function_response_content = {"status": "error", "message": f"Unknown function: {function_name}"}
-                    ui_message_for_this_call = f"Error: Unknown function '{function_name}' called."
-
-                if ui_message_for_this_call:
-                    ui_update_messages.append(ui_message_for_this_call)
-
-                # Add function execution result to history for the *next* turn's context
-                conversation_history.append({
-                    "role": "function",
-                    "content": [{"function_response": {"name": function_name, "response": function_response_content}}]
-                })
-        
-        # Combine initial text with messages from all function calls
-        if ui_update_messages:
-            aggregated_ui_messages = "  \n".join(ui_update_messages)
-            if final_text_response_to_user:
-                final_text_response_to_user += f"  \n  \n{aggregated_ui_messages}"
+                            ui_message_for_this_call = "You have no open tasks."
+                    else:
+                        ui_message_for_this_call = result.get("message")
             else:
-                final_text_response_to_user = aggregated_ui_messages
-        elif not final_text_response_to_user: # Fallback if no initial text and no UI messages
-            final_text_response_to_user = "I've processed your request."
+                logger.warning(f"LLM called unknown function: {function_name}")
+                function_response_content = {"status": "error", "message": f"Unknown function: {function_name}"}
+                ui_message_for_this_call = f"Error: Unknown function '{function_name}' called."
+
+            if ui_message_for_this_call:
+                ui_update_messages.append(ui_message_for_this_call)
+
+            # Add function execution result to history for the *next* turn's context
+            conversation_history.append({
+                "role": "function",
+                "content": [{"function_response": {"name": function_name, "response": function_response_content}}]
+            })
+
+    # 3. Assemble the final response for the user
+    final_text_response_to_user = " ".join(llm_text_responses).strip()
+    
+    if ui_update_messages:
+        aggregated_ui_messages = "  \n".join(ui_update_messages)
+        if final_text_response_to_user:
+            # Combine the LLM's conversational text with the results of the function calls
+            final_text_response_to_user += f"  \n  \n{aggregated_ui_messages}"
+        else:
+            # If the LLM only made function calls without text, the results are the response
+            final_text_response_to_user = aggregated_ui_messages
+
 
     # Add the complete model turn (text + all function calls) to history
     if model_turn_content_for_history:
