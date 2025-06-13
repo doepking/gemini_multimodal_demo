@@ -107,15 +107,16 @@ def show_consent_banner():
                 Please review the details before proceeding.
                 """)
 
-                with st.expander("View Details", expanded=False):
-                    st.subheader("Core Services")
+                with st.expander("View Details", expanded=True):
+                    st.subheader("Core Services Overview")
                     st.markdown("""
-                        - **Session Management & Authentication:** We use necessary cookies and services from Streamlit and Google to manage your session and securely log you in.
-                        - **AI-Powered Features:** Google Gemini is utilized for chat, analysis, and transcription to enhance your experience.
-                        - **Local Data Storage:** Your inputs, tasks, and background information are stored locally in files to personalize the app.
+                    - **Authentication & Session Management**: We use essential services from Google and Streamlit to securely log you in and manage your session.
+                    - **AI-Powered Features**: Your interactions are processed by Google's Gemini models to provide chat responses, analysis, and other AI capabilities.
+                    - **Secure Cloud Database**: Your inputs, tasks, and background information are stored in a secure **Google Cloud SQL** database to personalize the app and persist your data across sessions.
                     """)
-                    st.subheader("Legal Information")
-                    st.markdown("Review our Privacy Policy and Legal Notice for detailed information on data collection, usage, storage, and your rights.")
+
+                    st.subheader("Your Data & Rights")
+                    st.markdown("For detailed information on data collection, usage, your rights under GDPR, and who to contact, please review our full legal documents.")
 
                     # Using columns for a cleaner layout of download buttons
                     col_privacy, col_imprint = st.columns(2)
