@@ -573,7 +573,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             audio_part = types.Part(inline_data=types.Blob(data=audio_content, mime_type="audio/wav"))
             
             # Add a text part to frame the audio as the user's prompt
-            text_part = types.Part(text="The attached audio represents the user's prompt. Please process it and respond accordingly.")
+            text_part = types.Part(text="Please transcribe and respond to the following user audio input.")
             
             current_input_parts.extend([text_part, audio_part])
 
