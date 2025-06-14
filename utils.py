@@ -553,41 +553,47 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         role = "user" if turn["role"] == "user" else "model"
         # Handle cases where turn['content'] might be a list of parts (from previous function calls)
         if isinstance(turn["content"], list):
+            # The content is already a list of parts (or dicts representing parts)
             contents.append({"role": role, "parts": turn["content"]})
         else:
-            contents.append({"role": role, "parts": [{"text": turn["content"]}]})
+            # For simple text content, wrap it in a Part object
+            contents.append({"role": role, "parts": [types.Part(text=turn["content"])]})
 
 
     # Prepare current user input
     current_input_parts = []
     if user_prompt:
-        current_input_parts.append({"text": user_prompt})
+        current_input_parts.append(types.Part(text=user_prompt))
         logger.info(f"User text prompt: {user_prompt}")
     elif audio_file_path:
         logger.info(f"Processing audio file: {audio_file_path}")
         try:
             with open(audio_file_path, "rb") as audio_file:
-                audio_content_bytes = audio_file.read()
-            audio_blob = types.Blob(data=audio_content_bytes, mime_type="audio/wav")
-            # For this demo, we'll ask the LLM to transcribe and then respond.
-            # A more robust solution might transcribe first, then pass text to a second LLM call.
-            current_input_parts.append({"text": "Audio input received. Please transcribe and then respond to the content of the audio."})
-            current_input_parts.append({"inline_data": audio_blob})
+                audio_content = audio_file.read()
+            audio_part = types.Part(inline_data=types.Blob(data=audio_content, mime_type="audio/wav"))
+            
+            # Add a text part to frame the audio as the user's prompt
+            text_part = types.Part(text="The attached audio represents the user's prompt. Please process it and respond accordingly.")
+            
+            current_input_parts.extend([text_part, audio_part])
+
         except Exception as e:
-            logger.error(f"Error reading audio file {audio_file_path}: {e}")
+            logger.error(f"Error reading audio file {audio_file_path}: {e}", exc_info=True)
             return {"text_response": "Error processing audio file.", "ui_message": None}
     else:
         logger.error("No input (text or audio) provided to get_chat_response.")
         return {"text_response": "Error: No input provided.", "ui_message": None}
 
+
     if current_input_parts:
         contents.append({"role": "user", "parts": current_input_parts})
-        # Add to conversation_history for the next turn (simplified for this demo)
-        # A more robust history would store the exact parts structure.
+        # Add to conversation_history for the next turn
         if user_prompt:
             conversation_history.append({"role": "user", "content": user_prompt})
         elif audio_file_path:
-             conversation_history.append({"role": "user", "content": "[Audio Input]"})
+             # For audio, we store the parts themselves in the history
+             # so we can correctly reconstruct the conversation later.
+             conversation_history.append({"role": "user", "content": current_input_parts})
 
 
     # --- First LLM Call (to decide on function call or direct response) ---
