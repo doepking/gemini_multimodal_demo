@@ -7,6 +7,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy import case
 
 from database import SessionLocal
 from models import User, TextInput, BackgroundInfo, Task, NewsletterLog
@@ -188,7 +189,12 @@ def load_input_log(db, user_id):
     return db.query(TextInput).filter(TextInput.user_id == user_id).all()
 
 def load_tasks(db, user_id):
-    return db.query(Task).filter(Task.user_id == user_id).all()
+    """Loads tasks for a user, with open/in_progress tasks first, then by creation date."""
+    status_order = case(
+        (Task.status.in_(['open', 'in_progress']), 0),
+        else_=1
+    )
+    return db.query(Task).filter(Task.user_id == user_id).order_by(status_order, Task.created_at.desc()).all()
 
 def load_background_info(db, user_id):
     background_info = db.query(BackgroundInfo).filter(BackgroundInfo.user_id == user_id).order_by(BackgroundInfo.created_at.desc()).first()
@@ -488,9 +494,9 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     input_log = session_state.get('input_log', [])
     tasks = session_state.get('tasks', [])
     current_bg_info_str = json.dumps(background_info, indent=2)
-    recent_logs_preview = [log.content[:500] + "..." if len(log.content) > 500 else log.content for log in input_log[-20:]] # Last 20 logs
+    recent_logs_preview = [log.content[:500] + "..." if len(log.content) > 500 else log.content for log in input_log[-50:]] # Last 50 logs
     recent_logs_str = "\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
-    tasks_preview = [f"ID: {task.id}, Desc: {task.description}, Status: {task.status}" for task in tasks]
+    tasks_preview = [f"ID: {task.id}, Desc: {task.description}, Status: {task.status}" for task in tasks[-20:]] # Last 20 tasks
     tasks_str = "\n- ".join(tasks_preview) if tasks_preview else "No tasks."
     
     now = dt.datetime.now(dt.timezone.utc)

@@ -910,8 +910,8 @@ with tab3:
     if not st.session_state.tasks:
         st.info("No tasks yet. Add one below or ask the chat assistant to add one for you!")
     else:
-        # Sort tasks by creation date descending
-        sorted_tasks = sorted(st.session_state.tasks, key=lambda x: x.created_at, reverse=True)
+        # Tasks are already pre-sorted by the load_tasks function
+        sorted_tasks = st.session_state.tasks
         
         # Convert list of ORM objects to a list of dictionaries for DataFrame creation
         tasks_for_df = [
