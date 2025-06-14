@@ -107,20 +107,22 @@ add_log_entry_func = types.Tool(
         {
             "name": "add_log_entry",
             "description": (
-                "Processes a user's text input, categorizes it (optional, basic for now), "
-                "and adds it to a session-based log. Use this when the user provides a general statement, "
-                "observation, thought, or event they want to record."
+                "Logs a user's text input. Before logging, lightly clean the input to improve clarity while preserving the original tone and meaning. "
+                "You must correct typos, add necessary commas, remove filler words (e.g., 'um', 'like', 'you know'), and refine the structure while preserving the meaning, original tone and all essential information."
+                "Use this function to record any statements about their actions, decisions, plans, reflections, feelings or observations."
             ),
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
                     "text_input": {
                         "type": "STRING",
-                        "description": "The raw text input provided by the user to be logged.",
+                        "description": (
+                            "The lightly cleaned text input from the user with all essential information & context preserved. "
+                        ),
                     },
                     "category_suggestion": {
                         "type": "STRING",
-                        "description": "An optional category suggested by the LLM. Use one of: 'Note', 'Decision', 'Action', 'Plan', 'Observation', 'Reflection', 'Feeling'.",
+                        "description": "Your best guess for the category for the input: 'Note', 'Decision', 'Action', 'Plan', 'Observation', 'Reflection', 'Feeling'.",
                     }
                 },
                 "required": ["text_input"],
@@ -441,7 +443,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     input_log = session_state.get('input_log', [])
     tasks = session_state.get('tasks', [])
     current_bg_info_str = json.dumps(background_info, indent=2)
-    recent_logs_preview = [log.content[:100] + "..." if len(log.content) > 100 else log.content for log in input_log[-5:]] # Last 5 logs
+    recent_logs_preview = [log.content[:500] + "..." if len(log.content) > 500 else log.content for log in input_log[-20:]] # Last 20 logs
     recent_logs_str = "\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
     tasks_preview = [f"ID: {task.id}, Desc: {task.description}, Status: {task.status}" for task in tasks]
     tasks_str = "\n- ".join(tasks_preview) if tasks_preview else "No tasks."
@@ -463,68 +465,84 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     {BACKGROUND_INFO_SCHEMA_EXAMPLE}
     ```
 
-    CURRENT USER BACKGROUND INFO (stored in session):
+    CURRENT USER BACKGROUND INFO:
     ```json
     {current_bg_info_str}
     ```
 
-    RECENT USER LOGS (last 5, stored in session):
+    RECENT USER LOGS (most recent 20):
     - {recent_logs_str}
 
-    CURRENT TASKS (stored in session):
+    CURRENT TASKS:
     - {tasks_str}
 
     --- FUNCTION CALLING RULES ---
 
     1.  **Call `add_log_entry` when:**
-        - The user provides a statement about their life, thoughts, or activities that should be recorded for later review. This includes observations, feelings, decisions made, actions completed, or future plans.
-        - Example: "I'm planning to finish the report by Friday 3pm, and I'm feeling good about it." -> Call `add_log_entry` (category 'Plan' (or 'Feeling')) AND `manage_tasks`.
-        - Example: "I just finished the presentation slides. I also realized my core value is continuous learning." -> Call `add_log_entry` (category 'Action'), `manage_tasks` (to update), AND `update_background_info`.
-        - Non-Example: "What are my tasks?" -> DO NOT call `add_log_entry`. Call `manage_tasks` with action='list' ONLY.
-        - Non-Example: "My name is Mike." -> DO NOT call `add_log_entry`. Call `update_background_info` ONLY.
+        - The user provides any statement about their actions, decisions, plans, reflections, feelings or observations.
+        - The input can be categorized as a "Note", "Action", "Decision", "Plan", "Reflection", "Feeling", or "Observation".
+        - If the input ALSO contains information for other function calls (task creation, task updates or background information updates), other functions should be called IN ADDITION to this one.
+        - Example: "I decided to start exercising." → call `add_log_entry`
+        - Example: "I'm planning to finish the report by Friday, and I'm feeling good about it." → call `add_log_entry` AND `manage_tasks`
+        - Example: "I just finished the presentation slides, it was a lot of work! I also realized my core value is continuous learning." → call `add_log_entry` AND `manage_tasks` AND `update_background_info`
+        - Non-Example: "My name's Mike. I'm 30 years old. I'm a guy living in Munich, Germany." → DO NOT call `add_log_entry`, call `update_background_info` ONLY
+        - Non-Example: "Can you create a task that I need to take out the trash tomorrow morning at 11:00 a.m.?" → DO NOT call `add_log_entry`, call `manage_tasks` with `action='add'` ONLY
+        - Non-Example: "Should I take job A or job B, considering my values & goals?" → DO NOT call `add_log_entry`. Respond directly to the user with a text response.
 
     2.  **Call `update_background_info` when:**
-        - The user provides personal information (e.g., name, age, location), or updates their goals, values, challenges, or habits.
+        - The user provides personal information (e.g. name, age, gender, location, occupation, family status etc.) or information/updates about their goals, values, challenges, habits, etc.
         - This function should be called even if the input is also being logged by `add_log_entry`.
         - You must interpret the user's text and construct a valid, escaped JSON string for the `background_update_json` argument.
-        - Example: "My new goal is to learn Python." -> Call `update_background_info` with `background_update_json='{{"goals": ["Learn Python"]}}'`.
-        - Example: "I've been reflecting and realized my main value is 'impact'." -> Call `add_log_entry` AND `update_background_info` with `background_update_json='{{"values": ["impact"]}}'`.
+        - Example: "My new goal is to learn Python." -> call `update_background_info` with `background_update_json='{{"goals": ["Learn Python"]}}'`.
+        - Example: "I've been reflecting and realized my main value is 'impact'." -> call `add_log_entry` AND `update_background_info` with `background_update_json='{{"values": ["impact"]}}'`.
 
     3.  **Call `manage_tasks` when:**
-        - The user wants to add, update, or list tasks.
-        - **Add Task (`action='add'`):**
-            - Use for explicit requests ("add a task...") AND for statements of future, concrete, actionable intent ("I will...", "I need to...", "I plan to...").
-            - The `task_description` should be self-contained and comprehensive, including relevant context from the user's input. Avoid creating multiple, small, related tasks; prefer a single, well-defined task for a logical unit of work.
-            - You MUST infer deadlines from text like "tomorrow", "by Friday at 5pm", or "on Dec 25th" and convert them to an ISO string for the `deadline` argument.
-            - **Example (Intent):** "I'm going to draft the project proposal this afternoon." -> Call `manage_tasks` with `action='add'`, `task_description='Draft the project proposal'`, and an inferred `deadline`.
-            - **Non-Example (Reflection):** "Okay, so we are heading out for our daily morning walk. Today is Sunday, and we'll be heading to the forest and the playground again. And also, I'll think about my next video, which is more focused on the implementation, and think about the script, and then also check some more content that's on YouTube, like how my current video is doing." -> DO NOT call `manage_tasks` for this. This is a reflective thought, not a concrete to-do item. It should only be logged with `add_log_entry`.
-        - **Update Task (`action='update'`):** Use for explicit requests ("mark task 1 as done") AND for statements of progress or completion ("I finished the report", "I worked on the slides").
-            - You need to infer the `task_id` and the `task_status` ('completed' or 'in_progress').
-            - Example (Implicit Completion): "Just got back from my run." -> If a "Go for a run" task exists, call `manage_tasks` with `action='update'`, the correct `task_id`, and `task_status='completed'`.
-        - **List Tasks (`action='list'`):** Use when the user asks to see their tasks.
-
-    4.  **When NOT to use a function call (and just respond with text):**
-        - The user asks a general question that you can answer from the provided context (e.g., "What was the last thing I logged?").
-        - The user is engaging in casual conversation (e.g., "How are you today?", "Thanks for your help!").
-        - The user's request is too vague or ambiguous to map to a specific tool (e.g., "I need to get my life in order."). In this case, respond conversationally and perhaps ask clarifying questions.
-        - Example: "I feel a bit overwhelmed today." -> This is a perfect opportunity for a direct, empathetic text response. You should also choose to log it with `add_log_entry` if it seems like a significant entry for the user, but a text response is essential.
-        - Example: "What's the weather like?" -> You don't have a weather tool. Respond naturally that you cannot provide that information.
-        - Example: "Can you give me some advice on productivity?" -> This is a good time for a direct text response, offering general advice. You don't need a tool for this.
+        - The user's input describes new, concrete, actionable to-do items, plans, or intentions that *should clearly become tasks*. This applies even if the input is also being logged by `add_log_entry`.
+        - **action='add'**:
+            - This includes explicit requests like "remind me to..." or "add a task to...".
+            - This ALSO includes statements of future actions, plans, or intentions like "I'm going to...", "I will...", "I plan to...", "I intend to...", "I need to..." that are specific enough to be a task.
+            - Example (Explicit): "Remind me to buy groceries tomorrow."
+            - Example (Intention/Plan): "I'm planning to draft the project proposal this afternoon."
+            - Example (Need/Goal-driven action): "To effectively develop this, I may need to analyze example inputs." (This implies a task: "Analyze example inputs")
+            - Non-Example: "Going for my morning walk. I'll also think about my next project, maybe something about implementation, and check how my current one is doing." → DO NOT call `manage_tasks`. This is a reflective thought process, not a set of concrete to-do items.
+        - **action='update'**:
+            - The user's input describes an action they've taken, progress they've made, or the completion of something that relates to an existing task (refer to the CURRENT TASKS section above). This applies even if the input is also being logged by `add_log_entry`.
+            - This includes explicit commands like "mark 'X' as done".
+            - This ALSO includes statements like "I finished X", "I completed Y", "I've made progress on Z", "I worked on A", "I'm done with B".
+            - The function will attempt to link the statement to an existing task and update its status (e.g., to 'completed' or 'in_progress').
+            - ONLY call this function if the task status is changed, i.e. "open" -> "in_progress" or "in_progress" -> "completed".
+            - Example (Explicit): "Mark 'buy groceries' as done."
+            - Example (Implicit Completion): "I finished the report."
+            - Example (Implicit Progress): "I worked on the presentation slides for a couple of hours."
+            - Example (Action that might be a task): "Just got back from my run." (If "Go for a run" is a task)
+        - **action='list'**:
+            - The user requests to see all his "open" or "in_progress" tasks.
+            - Example: "Show me my open tasks."
 
     --- MULTI-FUNCTION CALL EXAMPLES ---
-    -   **User Input:** "Feeling productive today! I'm going to draft the project proposal this morning. This new focus on time blocking is really helping my productivity."
-        -   Call `add_log_entry` with the full text.
-        -   AND Call `manage_tasks` with `action='add'`, `task_description='Draft the project proposal'`, and an inferred `deadline`.
+    *   User Input: "Feeling productive today! I'm going to draft the project proposal this morning and then review the Q2 financials in the afternoon. This new focus on time blocking is really helping."
+        *   Call `add_log_entry` with the cleaned-up input.
+        *   AND Call `manage_tasks` with `action='add'` and the relevant task details.
+        *   AND respond with a text response to me (the user) to acknowledge my input and confirm the actions you've taken via function calls.
 
-    -   **User Input:** "I just finished the presentation slides! That took longer than expected. I also realized my main goal for this month should be to improve my design skills."
-        -   Call `add_log_entry` with the full text.
-        -   AND Call `manage_tasks` with `action='update'` to mark the presentation task as 'completed'.
-        -   AND Call `update_background_info` with `background_update_json='{{"goals": ["Improve my design skills"]}}'`.
+    *   User Input: "I just finished the presentation slides! That took longer than expected. I also realized my core goal for this month should be to improve my design skills."
+        *   Call `add_log_entry` with the cleaned-up input.
+        *   AND Call `manage_tasks` with `action='update'` to mark the task as 'completed'.
+        *   AND Call `update_background_info` with the new goal
+        *   AND respond with a text response to me (the user) to acknowledge my input and confirm the actions you've taken via function calls.
+
+    *   User Input: "Okay, I've decided to take the new job offer. It means relocating, which is a big step. I need to give notice at my current job by next Friday and start looking for apartments."
+        *   Call `add_log_entry` with the cleaned-up input.
+        *   AND Call `manage_tasks` with `action='add'` to create tasks for giving notice and looking for apartments
+        *   AND respond with a text response to me (the user) to acknowledge my input and confirm the actions you've taken via function calls.
 
     --- RESPONSE GUIDELINES ---
-    -   **IMPORTANT**: You MUST ALWAYS provide a text response to the user, even when you are making a function call. Your text response should be conversational and helpful. Acknowledge the user's input and confirm the actions you've taken via function calls. For example, if the user says "I live in Munich", you should call `update_background_info` AND respond with something like "Thanks for letting me know you live in Munich! I've updated your profile. What can I help you with?".
-    -   If the user's background information is sparse or empty (e.g., has fewer than 3-4 fields filled out), proactively ask questions to learn more about them (e.g., "I see I don't know much about you yet. Could you tell me a bit about your goals or what you do?").
-    -   Use function calls proactively and intelligently. Combine them in a single turn when appropriate.
+    -   **IMPORTANT**: You MUST ALWAYS provide a text response to me (the user), even when you are making a function call. Your text response should be conversational and helpful. Acknowledge my input and confirm the actions you've taken via function calls. For example, if I say "I live in Munich", you should call `update_background_info` AND respond with something like "Thanks for letting me know you live in Munich! I've updated your profile. What can I help you with?".
+    -   If there is yet limited or no background information about me, PROACTIVELY engage in conversation to learn more about my personal details, values and goals.
+    -   Use function calls proactively and intelligently, including MULTIPLE function calls per turn when appropriate.
+    -   You may combine a function call with a text response. For example, you could use 'add_log_entry' to record my decision and also respond with text to acknowledge the decision and ask a follow-up question.
+    -   Always provide a brief text response to acknowledge my input, even when calling function(s).
+    -   If I engage in casual conversation or ask a general question, don't unnecessarily log irrelevant information via function calls.
     -   If no function call is needed, just respond directly to the user.
     """
 
