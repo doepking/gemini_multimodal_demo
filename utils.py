@@ -635,11 +635,16 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
                 mode="AUTO"
             )
         )
+        thinking_config = types.ThinkingConfig(
+            thinking_budget=2048,
+            include_thoughts=False
+        )
         generation_config_with_tools = types.GenerateContentConfig(
             system_instruction=system_prompt,
             tools=[chat_tools],  # Tools included in the config
             tool_config=tool_config, # Let the model intelligently decide to use tools
-            max_output_tokens=2048,
+            thinking_config=thinking_config, # Set thinking budget to 2048 tokens
+            max_output_tokens=4096,
             temperature=0.7,
             safety_settings=[
                 types.SafetySetting(category=s["category"], threshold=s["threshold"])
