@@ -20,6 +20,7 @@ load_dotenv()
 # Gemini API initialization
 client = genai.Client(api_key=os.environ.get("LLM_API_KEY"))
 MODEL_NAME = "gemini-2.5-flash-preview-05-20"
+WEAK_MODEL = "gemini-2.0-flash-exp"
 # Safety settings
 safety_settings = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
@@ -436,6 +437,50 @@ def start_new_chat():
     """Starts a new chat session."""
     return []  # Initialize an empty conversation history
 
+def transcribe_audio(audio_file_path: str) -> str:
+    """Transcribes an audio file using a weaker, faster model."""
+    logger.info(f"Transcribing audio file: {audio_file_path}")
+    try:
+        with open(audio_file_path, "rb") as audio_file:
+            audio_content = audio_file.read()
+        audio_part = types.Part(inline_data=types.Blob(data=audio_content, mime_type="audio/wav"))
+
+        transcription_prompt = "Please transcribe the following audio input:"
+        
+        transcription_config = types.GenerateContentConfig(
+            max_output_tokens=2048,
+            temperature=0.0,
+            top_p=1,
+            top_k=32,
+            safety_settings=[
+                types.SafetySetting(category=s["category"], threshold=s["threshold"])
+                for s in safety_settings
+            ],
+        )
+
+        response = client.models.generate_content(
+            model=WEAK_MODEL,
+            contents=[transcription_prompt, audio_part],
+            config=transcription_config
+        )
+
+        if not response.candidates:
+            logger.warning("Transcription failed: No candidates in response.")
+            return None
+
+        candidate = response.candidates[0]
+        if not (hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts') and candidate.content.parts):
+            logger.warning(f"Transcription failed: Candidate has no content or parts. Finish reason: {getattr(candidate, 'finish_reason', 'N/A')}")
+            return None
+
+        transcribed_text = "".join(part.text for part in candidate.content.parts if hasattr(part, "text") and part.text)
+        logger.info(f"Successfully transcribed audio: '{transcribed_text[:100]}...'")
+        return transcribed_text
+
+    except Exception as e:
+        logger.error(f"Error during audio transcription: {e}", exc_info=True)
+        return None
+
 def get_chat_response(conversation_history, session_state, user_prompt=None, audio_file_path=None):
     """Gets a response from the Gemini model, handling text, audio, and function calls."""
     user = session_state.get('user')
@@ -560,40 +605,25 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             contents.append({"role": role, "parts": [types.Part(text=turn["content"])]})
 
 
-    # Prepare current user input
-    current_input_parts = []
-    if user_prompt:
-        current_input_parts.append(types.Part(text=user_prompt))
-        logger.info(f"User text prompt: {user_prompt}")
-    elif audio_file_path:
-        logger.info(f"Processing audio file: {audio_file_path}")
-        try:
-            with open(audio_file_path, "rb") as audio_file:
-                audio_content = audio_file.read()
-            audio_part = types.Part(inline_data=types.Blob(data=audio_content, mime_type="audio/wav"))
-            
-            # Add a text part to frame the audio as the user's prompt
-            text_part = types.Part(text="Please transcribe and respond to the following user audio input.")
-            
-            current_input_parts.extend([text_part, audio_part])
+    # If audio is provided, transcribe it first and use the text as the prompt.
+    if audio_file_path:
+        transcribed_text = transcribe_audio(audio_file_path)
+        if transcribed_text:
+            user_prompt = transcribed_text
+        else:
+            # Handle transcription failure
+            return {"text_response": "Sorry, I couldn't understand the audio. Please try again.", "ui_message": "Audio transcription failed."}
 
-        except Exception as e:
-            logger.error(f"Error reading audio file {audio_file_path}: {e}", exc_info=True)
-            return {"text_response": "Error processing audio file.", "ui_message": None}
-    else:
-        logger.error("No input (text or audio) provided to get_chat_response.")
+    # At this point, all inputs are treated as text prompts.
+    if not user_prompt:
+        logger.error("No user prompt available after processing inputs.")
         return {"text_response": "Error: No input provided.", "ui_message": None}
 
+    # Add the final user prompt to the conversation history
+    conversation_history.append({"role": "user", "content": user_prompt})
 
-    if current_input_parts:
-        contents.append({"role": "user", "parts": current_input_parts})
-        # Add to conversation_history for the next turn
-        if user_prompt:
-            conversation_history.append({"role": "user", "content": user_prompt})
-        elif audio_file_path:
-             # For audio, we store the parts themselves in the history
-             # so we can correctly reconstruct the conversation later.
-             conversation_history.append({"role": "user", "content": current_input_parts})
+    # Add the current user prompt to the contents for the API call
+    contents.append({"role": "user", "parts": [types.Part(text=user_prompt)]})
 
 
     # --- First LLM Call (to decide on function call or direct response) ---
