@@ -741,13 +741,13 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             logger.warning(f"No candidates in LLM response. Prompt feedback: {response.prompt_feedback}")
         else:
             logger.warning("No candidates in LLM response.")
-        return {"text_response": "Sorry, I couldn't generate a response.", "ui_message": None}
+        return {"text_response": "Sorry, I couldn't generate a response. Please try again.", "ui_message": None}
 
     candidate = response.candidates[0]
 
     if not (hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts') and candidate.content.parts):
         logger.warning(f"LLM response candidate has no content or parts. Finish reason: {getattr(candidate, 'finish_reason', 'N/A')}, Safety ratings: {getattr(candidate, 'safety_ratings', 'N/A')}")
-        return {"text_response": "Sorry, I couldn't generate a response.", "ui_message": None}
+        return {"text_response": "Sorry, I couldn't generate a response. Please try again.", "ui_message": None}
 
     # --- Process LLM Response: Text and Function Calls ---
     llm_text_responses = []

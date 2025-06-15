@@ -1043,19 +1043,50 @@ with tab4:
 
 with tab5:
     st.header("Manual Newsletter Trigger")
-    st.write("Click the button below to trigger a newsletter send to your own email address.")
+    st.write("Select a persona and click the button below to trigger a newsletter send to your own email address.")
     st.warning("Note: This requires SMTP environment variables to be set correctly in your project's `.env` file (e.g., `SMTP_HOST`, `SMTP_PORT`, `SMTP_PASSWORD`).", icon="⚠️")
 
-    if st.button("Send Newsletter Now", key="send_newsletter_btn"):
-        with st.spinner("Sending newsletter..."):
-            result = send_newsletter_for_user(
-                user_id=st.session_state.user.id,
-                user_email=st.user.email,
-                user_name=st.user.name,
-                session_state=st.session_state
-            )
+    # --- Persona Selection ---
+    persona_dir = "persona_prompts/"
+    try:
+        persona_files = [f for f in os.listdir(persona_dir) if f.endswith('.txt')]
+        persona_names = [os.path.splitext(f)[0].replace('_prompt', '').replace('_', ' ').title() for f in persona_files]
+        
+        selected_persona_name = st.selectbox(
+            "Choose a Persona for your Newsletter:",
+            options=persona_names,
+            index=0
+        )
 
-        if result.get("status") == "success":
-            st.success(result.get("message", "Newsletter sent successfully!"))
-        else:
-            st.error(result.get("message", "An unknown error occurred."))
+        if st.button("Send Newsletter Now", key="send_newsletter_btn"):
+            # Find the corresponding file for the selected persona name
+            selected_persona_file = ""
+            for i, name in enumerate(persona_names):
+                if name == selected_persona_name:
+                    selected_persona_file = persona_files[i]
+                    break
+            
+            if selected_persona_file:
+                with open(os.path.join(persona_dir, selected_persona_file), 'r') as f:
+                    persona_prompt = f.read()
+
+                with st.spinner(f"Sending newsletter with '{selected_persona_name}' persona..."):
+                    result = send_newsletter_for_user(
+                        user_id=st.session_state.user.id,
+                        user_email=st.user.email,
+                        user_name=st.user.name,
+                        session_state=st.session_state,
+                        persona_prompt=persona_prompt
+                    )
+
+                if result.get("status") == "success":
+                    st.success(result.get("message", "Newsletter sent successfully!"))
+                else:
+                    st.error(result.get("message", "An unknown error occurred."))
+            else:
+                st.error("Could not find the selected persona file.")
+
+    except FileNotFoundError:
+        st.error(f"Persona prompts directory not found at '{persona_dir}'. Please ensure it exists.")
+    except Exception as e:
+        st.error(f"An error occurred while loading personas: {e}")

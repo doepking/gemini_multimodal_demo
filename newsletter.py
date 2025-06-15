@@ -304,7 +304,7 @@ def _send_email(subject, html_body, to_email, creds):
         logger.error(f"Failed to send newsletter email to {to_email}: {e}", exc_info=True)
         return False
 
-def send_newsletter_for_user(user_id, user_email, user_name, session_state):
+def send_newsletter_for_user(user_id, user_email, user_name, session_state, persona_prompt):
     """
     Main public function to generate and send a newsletter to a single user.
     It loads the necessary data from session_state and calls the core sending function.
@@ -333,7 +333,7 @@ def send_newsletter_for_user(user_id, user_email, user_name, session_state):
 
     subject = f"Your State Analysis & Next Steps - {today.strftime('%B %d, %Y')}"
     
-    html_content = _generate_html_content(user_id, user_email, user_name, session_state)
+    html_content = _generate_html_content(user_id, user_email, user_name, session_state, persona_prompt)
 
     success = _send_email(subject, html_content, user_email, creds)
 
