@@ -857,7 +857,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     final_text_response_to_user = " ".join(llm_text_responses).strip()
     
     # The UI message for toast/notification can be the aggregation of all messages
-    ui_update_message = "\n".join(ui_update_messages) if ui_update_messages else None
+    ui_update_message = "  \n\n".join(ui_update_messages) if ui_update_messages else None
 
     # If the LLM provided a text response, use it. Otherwise, use the UI message.
     if not final_text_response_to_user and ui_update_message:
@@ -878,7 +878,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         conversation_history.append({"role": "model", "content": final_text_response_to_user})
 
     # The UI message for toast/notification can be the aggregation of all messages
-    ui_update_message = "\n".join(ui_update_messages) if ui_update_messages else None
+    ui_update_message = "  \n\n".join(ui_update_messages) if ui_update_messages else None
 
     logger.info(f"Final text response to user: {final_text_response_to_user}")
     if ui_update_message:
