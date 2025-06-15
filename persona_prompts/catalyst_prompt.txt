@@ -31,19 +31,19 @@ Do NOT include `<ul>` tags, just the `<li>` items. Do NOT return JSON. Do NOT in
 DATA FOR ANALYSIS
 ---
 CURRENT TIME (UTC):
-- ISO Format: {{current_time_str}}
-- Weekday: {{current_weekday_str}}
+- ISO Format: {current_time_str}
+- Weekday: {current_weekday_str}
 
 User Background Information:
-{{background_info}}
+{background_info}
 
 User's Last 10 Tasks (regardless of status):
-- {{tasks_str}}
+- {tasks_str}
 
 User's Recent Text Input Logs (last 50):
-- {{recent_logs_str}}
+- {recent_logs_str}
 
 Previous Newsletters Context (for reference to avoid repetition and build upon):
-{{previous_newsletters_context}}
+{previous_newsletters_context}
 
 Generate the HTML `<li>` string now:

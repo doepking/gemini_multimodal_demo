@@ -95,7 +95,7 @@ def _save_newsletter_log(user_id, content_li_items):
     db.add(log_entry)
     db.commit()
 
-def _generate_html_content(user_id, user_email, user_name, session_state):
+def _generate_html_content(user_id, user_email, user_name, session_state, persona_prompt, persona_name):
     """
     Generates the HTML content for the newsletter using a sophisticated, multi-part prompt.
     """
@@ -166,13 +166,21 @@ def _generate_html_content(user_id, user_email, user_name, session_state):
     else:
         insights_and_nudges_html = processed_content
 
+    # Persona-specific titles
+    persona_titles = {
+        "Pragmatist": "Your Actionable Briefing",
+        "Analyst": "Your Data Insights",
+        "Catalyst": "Your Weekly Catalyst"
+    }
+    email_title = persona_titles.get(persona_name, "Your State Analysis & Next Steps")
+
     # World-class HTML styling
     html_content = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <title>Your Current State Analysis & Next Steps</title>
+        <title>{email_title}</title>
         <style>
             body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f7f6; color: #333; }}
             .email-wrapper {{ max-width: 600px; margin: 25px auto; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }}
@@ -191,7 +199,7 @@ def _generate_html_content(user_id, user_email, user_name, session_state):
     </head>
     <body>
         <div class="email-wrapper">
-            <div class="header"><h1>Your State Analysis & Next Steps</h1></div>
+            <div class="header"><h1>{email_title}</h1></div>
             <div class="content">
                 <div class="greeting">
                     <p>Hi {greeting_name},</p>
@@ -247,7 +255,7 @@ def _send_email(subject, html_body, to_email, creds):
         logger.error(f"Failed to send newsletter email to {to_email}: {e}", exc_info=True)
         return False
 
-def send_newsletter_for_user(user_id, user_email, user_name, session_state, persona_prompt):
+def send_newsletter_for_user(user_id, user_email, user_name, session_state, persona_prompt, persona_name):
     """
     Main public function to generate and send a newsletter to a single user.
     It loads the necessary data from session_state and calls the core sending function.
@@ -266,17 +274,22 @@ def send_newsletter_for_user(user_id, user_email, user_name, session_state, pers
         and_(NewsletterLog.created_at >= start_of_day, NewsletterLog.created_at <= end_of_day)
     ).count()
 
-    if todays_log_count >= 1:
-        logger.info(f"Newsletter limit of 1 reached today for {user_email}. Skipping.")
+    if todays_log_count >= 3:
+        logger.info(f"Newsletter limit of 3 reached today for {user_email}. Skipping.")
         return {"status": "skipped", "message": "Newsletter limit reached for today."}
 
     creds = _get_email_credentials()
     if not creds["smtp_password"]:
         return {"status": "error", "message": "SMTP_PASSWORD environment variable not set."}
 
-    subject = f"Your State Analysis & Next Steps - {today.strftime('%B %d, %Y')}"
+    persona_titles = {
+        "Pragmatist": "Your Actionable Briefing",
+        "Analyst": "Your Data Insights",
+        "Catalyst": "Your Weekly Catalyst"
+    }
+    subject = f"{persona_titles.get(persona_name, 'Your State Analysis & Next Steps')} - {today.strftime('%B %d, %Y')}"
     
-    html_content = _generate_html_content(user_id, user_email, user_name, session_state, persona_prompt)
+    html_content = _generate_html_content(user_id, user_email, user_name, session_state, persona_prompt, persona_name)
 
     success = _send_email(subject, html_content, user_email, creds)
 

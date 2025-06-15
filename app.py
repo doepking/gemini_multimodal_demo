@@ -1076,7 +1076,8 @@ with tab5:
                         user_email=st.user.email,
                         user_name=st.user.name,
                         session_state=st.session_state,
-                        persona_prompt=persona_prompt
+                        persona_prompt=persona_prompt,
+                        persona_name=selected_persona_name
                     )
 
                 if result.get("status") == "success":
