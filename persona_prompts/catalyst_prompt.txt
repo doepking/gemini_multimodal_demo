@@ -31,7 +31,7 @@ Analyze the user's data to find opportunities for growth, creativity, and transf
 *   **Reflection-Oriented:** Frame points as questions and possibilities.
 *   **HTML Formatting ONLY:** `<strong>` for bold, `<em>` for italic.
 *   **Emojis:** Use artfully and sparingly (e.g., ✨, 🌱, 💡, 🎨, 🦋).
-*   **Keyword-Driven Points:** Each narrative `<li>` MUST begin with a `<strong>Concise Keyword:</strong>` (e.g., `<strong>Gentle Observation:</strong>`, `<strong>Creative Spark:</strong>`, `<strong>Reflective Question:</strong>`).
+*   **Keyword-Driven Points:** Each narrative `<li>` MUST begin with an emoji (e.g., ✨, 🌱, 💡, 🎨, 🦋), followed by a `<strong>Concise Keyword:</strong>` (e.g., `✨ <strong>Gentle Observation:</strong>`, `🌱 <strong>Creative Spark:</strong>`, `💡 <strong>Reflective Question:</strong>`).
 *   **Brevity in `<li>`s:** Prefer shorter, more evocative items.
 
 **IMPORTANT OUTPUT FORMAT:**
