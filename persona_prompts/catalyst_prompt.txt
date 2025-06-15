@@ -48,10 +48,10 @@ CURRENT TIME (UTC):
 User Background Information:
 {background_info}
 
-User's Last 10 Tasks (regardless of status):
+User's Last Tasks:
 - {tasks_str}
 
-User's Recent Text Input Logs (last 50):
+User's Recent Text Input Logs:
 - {recent_logs_str}
 
 Previous Newsletters Context (for reference to avoid repetition and build upon):
