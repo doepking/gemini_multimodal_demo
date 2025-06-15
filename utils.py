@@ -534,7 +534,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     
     recent_logs_preview = []
     for log in input_log[-50:]: # Last 50 logs
-        timestamp = log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else 'No timestamp'
+        timestamp = log.created_at.strftime('%Y-%m-%d %H:%M:%S (%A)') if log.created_at else 'No timestamp'
         content_preview = log.content[:500] + "..." if len(log.content) > 500 else log.content
         recent_logs_preview.append(f"[{timestamp}] {content_preview}")
     recent_logs_str = "\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
@@ -551,7 +551,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     Your role is to be a proactive and intelligent assistant, helping the user organize their thoughts, tasks, and personal information.
     Listen carefully to the user's input to decide whether to respond directly, use one of your tools, or use multiple tools in combination.
 
-    CURRENT TIME:
+    CURRENT TIME (UTC):
     - ISO Format: {current_time_str}
     - Weekday: {current_weekday_str}
 
