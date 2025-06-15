@@ -9,7 +9,7 @@ from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from sqlalchemy import and_
 from database import SessionLocal
-from models import User, NewsletterLog
+from models import NewsletterLog
 from google import genai
 from google.genai import types
 
@@ -100,9 +100,31 @@ def _generate_html_content(user_id, user_email, user_name, session_state):
     Generates the HTML content for the newsletter using a sophisticated, multi-part prompt.
     """
     greeting_name = user_name.split()[0] if user_name else user_email.split('@')[0]
-    input_log = session_state.get('input_log', [])
     background_info = session_state.get('background_info', {})
-    tasks = session_state.get('tasks', [])
+
+    # Get last 10 tasks from session state, sorted by creation date
+    all_tasks = session_state.get('tasks', [])
+    # Ensure created_at is a datetime object for sorting
+    for task in all_tasks:
+        if isinstance(task.created_at, str):
+            task.created_at = dt.datetime.fromisoformat(task.created_at.replace("Z", "+00:00"))
+    
+    recent_tasks = sorted(all_tasks, key=lambda t: t.created_at, reverse=True)[:10]
+    
+    tasks_preview = [
+        f"Desc: {task.description}, Status: {task.status}, Created: {task.created_at.strftime('%Y-%m-%d %H:%M (%A)')}, Deadline: {task.deadline.strftime('%Y-%m-%d %H:%M (%A)') if task.deadline else 'None'}"
+        for task in recent_tasks
+    ]
+    tasks_str = "\\n- ".join(tasks_preview) if tasks_preview else "No recent tasks."
+
+    # Format input log with weekday
+    input_log = session_state.get('input_log', [])
+    recent_logs_preview = []
+    for log in input_log[-50:]:  # Last 50 logs
+        timestamp = log.created_at.strftime('%Y-%m-%d %H:%M (%A)') if log.created_at else 'No timestamp'
+        content_preview = log.content[:500] + "..." if len(log.content) > 500 else log.content
+        recent_logs_preview.append(f"[{timestamp}] {content_preview}")
+    recent_logs_str = "\\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
     
     previous_newsletters = _load_previous_newsletters(user_id)
     previous_newsletters_context = "\n\n".join([log.content for log in previous_newsletters])
@@ -113,7 +135,7 @@ def _generate_html_content(user_id, user_email, user_name, session_state):
 
     prompt = f"""
     You are "The Opportunity Architect", an AI assistant for the Life Tracker application. Your persona is brutally honest, direct, pragmatic, and intensely action-focused – a "tough love" mentor dedicated to helping user {user_name if user_name else user_email} identify and execute high-leverage strategic plays. No sugarcoating.
-    Analyze the provided data (background, active tasks, recent text logs). Your focus is on identifying realistic, high-impact actions for *today* ({current_weekday_str}) and, if relevant, connected longer-term strategic considerations.
+    Analyze the provided data (background, tasks, recent text logs). Your focus is on identifying realistic, high-impact actions for *today* ({current_weekday_str}) and, if relevant, connected longer-term strategic considerations.
 
     Your goal is to generate a "Current State Analysis & Actionable Next Steps" brief as a string of three to four HTML list items (`<li>...</li>`).
 
@@ -156,16 +178,21 @@ def _generate_html_content(user_id, user_email, user_name, session_state):
     Respond with a single string that is a sequence of HTML `<li>` elements.
     Do NOT include `<ul>` tags, just the `<li>` items. Do NOT return JSON. Do NOT include any other explanatory text, preamble, or sign-off. Your entire response must be only the HTML `<li>` string.
 
-    Data for user {user_name if user_name else user_email} for today - {current_time_str} ({current_weekday_str}).
+    ---
+    DATA FOR {user_name if user_name else user_email} FOR ANALYSIS
+    ---
+    CURRENT TIME (UTC):
+    - ISO Format: {current_time_str}
+    - Weekday: {current_weekday_str}
 
     User Background Information:
     {background_info}
 
-    User's Active Tasks:
-    {tasks}
+    User's Last 10 Tasks:
+    - {tasks_str}
 
-    User's Recent Text Input Logs:
-    {input_log[-10:]}
+    User's Recent Text Input Logs (last 50):
+    - {recent_logs_str}
 
     Previous Newsletters Context (for reference to avoid repetition and build upon):
     {previous_newsletters_context}
