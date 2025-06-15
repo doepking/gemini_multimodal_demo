@@ -264,21 +264,50 @@ def manage_tasks_and_persist_impl(action: str, user: User, task_description: str
         return {"status": "success", "message": f"Task added: '{task_description}'", "task": task_to_dict(new_task)}
 
     elif action == "update":
-        if task_id is None or task_status is None:
-            return {"status": "error", "message": "Task ID and status are required to update a task."}
+        if task_id is None:
+            return {"status": "error", "message": "Task ID is required to update a task."}
         
         task = db.query(Task).filter(Task.id == task_id, Task.user_id == user.id).first()
-        if task:
+        if not task:
+            return {"status": "error", "message": f"Task with ID {task_id} not found."}
+
+        if task_status:
             task.status = task_status
             if task_status == "completed":
                 task.completed_at = dt.datetime.now(dt.timezone.utc)
-            db.commit()
-            db.refresh(task)
-            logger.info(f"Task {task_id} updated to {task_status}")
-            success_message = f"Okay, I've updated Task {task.id}: '{task.description}' to '{task_status}'."
-            return {"status": "success", "message": success_message, "task": task_to_dict(task)}
-        else:
-            return {"status": "error", "message": f"Task with ID {task_id} not found."}
+            else:
+                # If status is changed to something other than completed, clear completed_at
+                task.completed_at = None
+
+        if deadline:
+            try:
+                task.deadline = dt.datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                try:
+                    d = dt.datetime.strptime(deadline, "%Y-%m-%d").date()
+                    now_time = dt.datetime.now(dt.timezone.utc).time()
+                    task.deadline = dt.datetime.combine(d, now_time, tzinfo=dt.timezone.utc)
+                except (ValueError, TypeError):
+                    return {"status": "error", "message": "Invalid deadline format. Please use ISO format or YYYY-MM-DD."}
+        
+        if task_description:
+            task.description = task_description
+
+        db.commit()
+        db.refresh(task)
+        logger.info(f"Task {task_id} updated. Status: {task.status}, Description: {task.description}")
+        
+        # Construct a more detailed success message
+        update_details = []
+        if task_status:
+            update_details.append(f"status to '{task_status}'")
+        if task_description:
+            update_details.append(f"description to '{task_description}'")
+        if deadline:
+            update_details.append(f"deadline to '{deadline}'")
+        
+        success_message = f"Okay, I've updated Task {task.id} ({', '.join(update_details)})."
+        return {"status": "success", "message": success_message, "task": task_to_dict(task)}
 
     elif action == "list":
         active_tasks = db.query(Task).filter(Task.user_id == user.id, Task.status.in_(['open', 'in_progress'])).all()
@@ -328,7 +357,15 @@ def add_log_entry_and_persist_impl(text_input: str, user: User, category_suggest
     
     content_preview = text_input[:100] + "..." if len(text_input) > 100 else text_input
     logger.info(f"Input logged: {content_preview}")
-    return {"status": "success", "message": f"Log added: '{content_preview}'", "entry": log_entry_to_dict(log_entry)}
+    
+    final_category = category_suggestion if category_suggestion else "Note"
+    success_message = (
+        f"Log added successfully!  \n"
+        f"- **Content:** '{content_preview}'  \n"
+        f"- **Category:** {final_category}"
+    )
+    
+    return {"status": "success", "message": success_message, "entry": log_entry_to_dict(log_entry)}
 
 def update_background_info_and_persist_impl(background_update_json: str, user: User, replace: bool = False):
     """
@@ -494,10 +531,17 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     input_log = session_state.get('input_log', [])
     tasks = session_state.get('tasks', [])
     current_bg_info_str = json.dumps(background_info, indent=2)
-    recent_logs_preview = [log.content[:500] + "..." if len(log.content) > 500 else log.content for log in input_log[-50:]] # Last 50 logs
+    
+    recent_logs_preview = []
+    for log in input_log[-50:]: # Last 50 logs
+        timestamp = log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else 'No timestamp'
+        content_preview = log.content[:500] + "..." if len(log.content) > 500 else log.content
+        recent_logs_preview.append(f"[{timestamp}] {content_preview}")
     recent_logs_str = "\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
-    tasks_preview = [f"ID: {task.id}, Desc: {task.description}, Status: {task.status}" for task in tasks[-20:]] # Last 20 tasks
-    tasks_str = "\n- ".join(tasks_preview) if tasks_preview else "No tasks."
+    
+    active_tasks = [task for task in tasks if task.status in ['open', 'in_progress']]
+    tasks_preview = [f"ID: {task.id}, Desc: {task.description}, Status: {task.status}, Deadline: {task.deadline}" for task in active_tasks[:20]] # Last 20 active tasks
+    tasks_str = "\n- ".join(tasks_preview) if tasks_preview else "No open or in-progress tasks."
     
     now = dt.datetime.now(dt.timezone.utc)
     current_time_str = now.isoformat()
@@ -521,10 +565,10 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     {current_bg_info_str}
     ```
 
-    RECENT USER LOGS (most recent 20):
+    RECENT USER LOGS (most recent 50):
     - {recent_logs_str}
 
-    CURRENT TASKS:
+    CURRENT TASKS: (most recent 20)
     - {tasks_str}
 
     --- FUNCTION CALLING RULES ---
@@ -557,15 +601,18 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             - Example (Need/Goal-driven action): "To effectively develop this, I may need to analyze example inputs." (This implies a task: "Analyze example inputs")
             - Non-Example: "Going for my morning walk. I'll also think about my next project, maybe something about implementation, and check how my current one is doing." → DO NOT call `manage_tasks`. This is a reflective thought process, not a set of concrete to-do items.
         - **action='update'**:
-            - The user's input describes an action they've taken, progress they've made, or the completion of something that relates to an existing task (refer to the CURRENT TASKS section above). This applies even if the input is also being logged by `add_log_entry`.
-            - This includes explicit commands like "mark 'X' as done".
+            - The user's input describes an action they've taken, progress they've made, or the completion of something that relates to an existing task. This also includes requests to modify a task's description or deadline.
+            - This includes explicit commands like "mark 'X' as done" or "change the deadline for task Y".
             - This ALSO includes statements like "I finished X", "I completed Y", "I've made progress on Z", "I worked on A", "I'm done with B".
-            - The function will attempt to link the statement to an existing task and update its status (e.g., to 'completed' or 'in_progress').
-            - ONLY call this function if the task status is changed, i.e. "open" -> "in_progress" or "in_progress" -> "completed".
-            - Example (Explicit): "Mark 'buy groceries' as done."
-            - Example (Implicit Completion): "I finished the report."
-            - Example (Implicit Progress): "I worked on the presentation slides for a couple of hours."
-            - Example (Action that might be a task): "Just got back from my run." (If "Go for a run" is a task)
+            - The function will attempt to link the statement to an existing task and update its status (e.g., to 'completed' or 'in_progress'), description, or deadline. To do this accurately, you MUST identify the correct `task_id` from the 'CURRENT TASKS' list and pass it to the function call.
+            - Be proactive: If a user's log entry clearly corresponds to a task, update it. For example, if there is a task "Go for a run" and the user says "I just went for a run", you should update the task to 'completed'.
+            - ONLY call this function if the task status, description, or deadline is changed.
+            - Example (Explicit Status): "Mark 'buy groceries' as done."
+            - Example (Implicit Completion): "I just managed to sit down for a bit and finish the report." -> update task to 'completed'.
+            - Example (Implicit Progress): "I worked on the presentation slides for a couple of hours." -> update task to 'in_progress'.
+            - Example (Proactive Completion): User says "Just got back from my run." and a task "Go for a run" exists -> update task to 'completed'.
+            - Example (Deadline Update): "Can you move the deadline for the 'project proposal' task to next Friday?" -> update task deadline.
+            - Example (Description Update): "Change the task 'buy groceries' to 'buy groceries for the week, including milk and bread'." -> update task description.
         - **action='list'**:
             - The user requests to see all his "open" or "in_progress" tasks.
             - Example: "Show me my open tasks."
@@ -771,14 +818,15 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     # 3. Assemble the final response for the user
     final_text_response_to_user = " ".join(llm_text_responses).strip()
     
-    if ui_update_messages:
-        aggregated_ui_messages = "  \n".join(ui_update_messages)
-        if final_text_response_to_user:
-            # Combine the LLM's conversational text with the results of the function calls
-            final_text_response_to_user += f"  \n  \n{aggregated_ui_messages}"
-        else:
-            # If the LLM only made function calls without text, the results are the response
-            final_text_response_to_user = aggregated_ui_messages
+    # The UI message for toast/notification can be the aggregation of all messages
+    ui_update_message = "\n".join(ui_update_messages) if ui_update_messages else None
+
+    # If the LLM provided a text response, use it. Otherwise, use the UI message.
+    if not final_text_response_to_user and ui_update_message:
+        final_text_response_to_user = ui_update_message
+    elif final_text_response_to_user and ui_update_message:
+        # Optionally combine them if both exist
+        final_text_response_to_user = f"{final_text_response_to_user}\n\n{ui_update_message}"
 
 
     # Add the complete model turn (text + all function calls) to history
