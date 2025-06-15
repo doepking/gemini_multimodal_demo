@@ -89,7 +89,7 @@ manage_tasks_func = types.Tool(
                     },
                     "task_status": {
                         "type": "STRING",
-                        "description": "The new status of the task to update.",
+                        "description": "The status of the task. Used when updating a task's status, or to filter tasks by status when listing them.",
                         "enum": ["open", "in_progress", "completed"]
                     },
                     "deadline": {
@@ -310,8 +310,18 @@ def manage_tasks_and_persist_impl(action: str, user: User, task_description: str
         return {"status": "success", "message": success_message, "task": task_to_dict(task)}
 
     elif action == "list":
-        active_tasks = db.query(Task).filter(Task.user_id == user.id, Task.status.in_(['open', 'in_progress'])).all()
-        return {"status": "success", "tasks": [task_to_dict(t) for t in active_tasks]}
+        query = db.query(Task).filter(Task.user_id == user.id)
+        if task_status and task_status in ["open", "in_progress", "completed"]:
+            query = query.filter(Task.status == task_status)
+
+        status_order = case(
+            (Task.status == 'in_progress', 0),
+            (Task.status == 'open', 1),
+            (Task.status == 'completed', 2),
+            else_=3
+        )
+        tasks = query.order_by(status_order, Task.created_at.desc()).all()
+        return {"status": "success", "tasks": [task_to_dict(t) for t in tasks]}
 
     else:
         return {"status": "error", "message": f"Unknown task action: {action}"}
@@ -614,8 +624,11 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             - Example (Deadline Update): "Can you move the deadline for the 'project proposal' task to next Friday?" -> update task deadline.
             - Example (Description Update): "Change the task 'buy groceries' to 'buy groceries for the week, including milk and bread'." -> update task description.
         - **action='list'**:
-            - The user requests to see all his "open" or "in_progress" tasks.
-            - Example: "Show me my open tasks."
+            - The user requests to see their tasks. This can be filtered by status (e.g., 'open', 'in_progress', 'completed').
+            - If no status is specified, all tasks will be listed.
+            - Example: "Show me my open tasks." -> list tasks with status "open".
+            - Example: "List my completed tasks." -> list tasks with status "completed".
+            - Example: "What are all my tasks?" -> list all tasks.
 
     --- MULTI-FUNCTION CALL EXAMPLES ---
     *   User Input: "Feeling productive today! I'm going to draft the project proposal this morning and then review the Q2 financials in the afternoon. This new focus on time blocking is really helping."
@@ -709,15 +722,32 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             contents=contents,
             config=generation_config_with_tools, # Pass the config object
         )
+
+        # Log token usage and thoughts
+        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            usage_metadata = response.usage_metadata
+            logger.info(f"Prompt Token Count: {usage_metadata.prompt_token_count}")
+            thoughts_token_count = getattr(usage_metadata, 'thoughts_token_count') or 0
+            if thoughts_token_count > 0:
+                logger.info(f"Thoughts Token Count: {thoughts_token_count}")
+            logger.info(f"Candidates Token Count: {usage_metadata.candidates_token_count}")
+            logger.info(f"Total Token Count: {usage_metadata.total_token_count}")
     except Exception as e:
         logger.error(f"LLM generation error: {e}", exc_info=True)
         return {"text_response": f"Sorry, an error occurred with the AI model: {e}", "ui_message": None}
 
     if not response.candidates:
-        logger.warning("No candidates in LLM response.")
+        if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+            logger.warning(f"No candidates in LLM response. Prompt feedback: {response.prompt_feedback}")
+        else:
+            logger.warning("No candidates in LLM response.")
         return {"text_response": "Sorry, I couldn't generate a response.", "ui_message": None}
 
     candidate = response.candidates[0]
+
+    if not (hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts') and candidate.content.parts):
+        logger.warning(f"LLM response candidate has no content or parts. Finish reason: {getattr(candidate, 'finish_reason', 'N/A')}, Safety ratings: {getattr(candidate, 'safety_ratings', 'N/A')}")
+        return {"text_response": "Sorry, I couldn't generate a response.", "ui_message": None}
 
     # --- Process LLM Response: Text and Function Calls ---
     llm_text_responses = []
@@ -783,8 +813,13 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
                 if result.get("status") == "success":
                     if result.get("tasks"):
                         tasks = result.get("tasks")
+                        status_filter = function_args.get("task_status")
                         if tasks:
-                            formatted_tasks = ["These are your current open tasks:"]
+                            if status_filter:
+                                header = f"These are your '{status_filter}' tasks:"
+                            else:
+                                header = "These are all your current tasks:"
+                            formatted_tasks = [header]
                             for task in tasks:
                                 deadline_str = ""
                                 if task.get("deadline"):
@@ -798,7 +833,10 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
                                 )
                             ui_message_for_this_call = "\n".join(formatted_tasks)
                         else:
-                            ui_message_for_this_call = "You have no open tasks."
+                            if status_filter:
+                                ui_message_for_this_call = f"You have no tasks with status '{status_filter}'."
+                            else:
+                                ui_message_for_this_call = "You have no tasks."
                     else:
                         ui_message_for_this_call = result.get("message")
             else:
