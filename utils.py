@@ -261,7 +261,10 @@ def manage_tasks_and_persist_impl(action: str, user: User, task_description: str
         db.commit()
         db.refresh(new_task)
         logger.info(f"Task added: {new_task}")
-        return {"status": "success", "message": f"Task added: '{task_description}'", "task": task_to_dict(new_task)}
+        success_message = f"Task added successfully!  \n- **Description:** '{task_description}'"
+        if new_task.deadline:
+            success_message += f"  \n- **Deadline:** {new_task.deadline.strftime('%Y-%m-%d %H:%M')}"
+        return {"status": "success", "message": success_message, "task": task_to_dict(new_task)}
 
     elif action == "update":
         if task_id is None:
