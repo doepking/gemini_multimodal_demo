@@ -31,6 +31,10 @@ safety_settings = [
 def _get_newsletter_content_from_llm(prompt):
     """Generates content from the LLM for the newsletter."""
     try:
+        thinking_config = types.ThinkingConfig(
+            thinking_budget=2048,
+            include_thoughts=False
+        )
         generation_config = types.GenerateContentConfig(
             max_output_tokens=4096,
             temperature=0.7,
@@ -38,6 +42,7 @@ def _get_newsletter_content_from_llm(prompt):
                 types.SafetySetting(category=s["category"], threshold=s["threshold"])
                 for s in safety_settings
             ],
+            thinking_config=thinking_config,
         )
         response = client.models.generate_content(
             model=MODEL_NAME,
