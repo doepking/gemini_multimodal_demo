@@ -9,7 +9,7 @@ from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from sqlalchemy import and_
 from database import SessionLocal
-from models import User, NewsletterLog
+from models import NewsletterLog
 from google import genai
 from google.genai import types
 
@@ -31,6 +31,10 @@ safety_settings = [
 def _get_newsletter_content_from_llm(prompt):
     """Generates content from the LLM for the newsletter."""
     try:
+        thinking_config = types.ThinkingConfig(
+            thinking_budget=2048,
+            include_thoughts=False
+        )
         generation_config = types.GenerateContentConfig(
             max_output_tokens=4096,
             temperature=0.7,
@@ -38,6 +42,7 @@ def _get_newsletter_content_from_llm(prompt):
                 types.SafetySetting(category=s["category"], threshold=s["threshold"])
                 for s in safety_settings
             ],
+            thinking_config=thinking_config,
         )
         response = client.models.generate_content(
             model=MODEL_NAME,
@@ -95,14 +100,36 @@ def _save_newsletter_log(user_id, content_li_items):
     db.add(log_entry)
     db.commit()
 
-def _generate_html_content(user_id, user_email, user_name, session_state):
+def _generate_html_content(user_id, user_email, user_name, session_state, persona_prompt, persona_name):
     """
     Generates the HTML content for the newsletter using a sophisticated, multi-part prompt.
     """
     greeting_name = user_name.split()[0] if user_name else user_email.split('@')[0]
-    input_log = session_state.get('input_log', [])
     background_info = session_state.get('background_info', {})
-    tasks = session_state.get('tasks', [])
+
+    # Get last 20 tasks from session state, sorted by creation date
+    all_tasks = session_state.get('tasks', [])
+    # Ensure created_at is a datetime object for sorting
+    for task in all_tasks:
+        if isinstance(task.created_at, str):
+            task.created_at = dt.datetime.fromisoformat(task.created_at.replace("Z", "+00:00"))
+    
+    recent_tasks = sorted(all_tasks, key=lambda t: t.created_at, reverse=True)[:20]
+    
+    tasks_preview = [
+        f"Desc: {task.description}, Status: {task.status}, Created: {task.created_at.strftime('%Y-%m-%d %H:%M (%A)')}, Deadline: {task.deadline.strftime('%Y-%m-%d %H:%M (%A)') if task.deadline else 'None'}"
+        for task in recent_tasks
+    ]
+    tasks_str = "\\n- ".join(tasks_preview) if tasks_preview else "No recent tasks."
+
+    # Format input log with weekday
+    input_log = session_state.get('input_log', [])
+    recent_logs_preview = []
+    for log in input_log[-200:]:  # Last 200 logs
+        timestamp = log.created_at.strftime('%Y-%m-%d %H:%M (%A)') if log.created_at else 'No timestamp'
+        content_preview = log.content[:500] + "..." if len(log.content) > 500 else log.content
+        recent_logs_preview.append(f"[{timestamp}] {content_preview}")
+    recent_logs_str = "\\n- ".join(recent_logs_preview) if recent_logs_preview else "No recent logs."
     
     previous_newsletters = _load_previous_newsletters(user_id)
     previous_newsletters_context = "\n\n".join([log.content for log in previous_newsletters])
@@ -111,67 +138,15 @@ def _generate_html_content(user_id, user_email, user_name, session_state):
     current_time_str = now.isoformat()
     current_weekday_str = now.strftime('%A')
 
-    prompt = f"""
-    You are "The Opportunity Architect", an AI assistant for the Life Tracker application. Your persona is brutally honest, direct, pragmatic, and intensely action-focused – a "tough love" mentor dedicated to helping user {user_name if user_name else user_email} identify and execute high-leverage strategic plays. No sugarcoating.
-    Analyze the provided data (background, active tasks, recent text logs). Your focus is on identifying realistic, high-impact actions for *today* ({current_weekday_str}) and, if relevant, connected longer-term strategic considerations.
-
-    Your goal is to generate a "Current State Analysis & Actionable Next Steps" brief as a string of three to four HTML list items (`<li>...</li>`).
-
-    **Core Structure & Narrative Guidelines:**
-    *   **Narrative First (2-3 `<li>`s):** The first two or three `<li>` items must weave together a cohesive, story-like narrative. This narrative should:
-        *   Deliver a "hard truth" or key insight derived from the user's data.
-        *   Flow into a "strategic play" – a clear, actionable nudge for *today*.
-        *   **Synthesize, Don't Recite:** Crucially, do **NOT** directly quote specific dates, times, or verbatim content from the user's logs. Interpret patterns and themes to provide higher-level analysis.
-        *   **Fluid Storytelling:** Craft a compelling, flowing message where points connect logically. It should read like a masterfully crafted piece of advice, not a disjointed list.
-    *   **Quote Last (1 `<li>`):** The **final `<li>` item, and only this item, must be a motivational quote** (including its author, if known) relevant to the narrative.
-    *   **Consider Past Advice:** Review any "PREVIOUSLY SENT ADVICE" provided below. Do not repeat the same core messages and quotes. If appropriate, build upon or refer to unaddressed previous advice. For example, if a user was previously advised to exercise and their logs don't show it, you might gently nudge them on that again, perhaps from a new angle.
-
-    This means the entire brief will be 3 or 4 `<li>` items in total.
-
-    **Overall Style & Readability:**
-    *   **Impactful & Scannable:** Use concise, punchy sentences. Get straight to the point.
-    *   **Action-Oriented:** Focus on verbs and clear calls to action.
-    *   **HTML Formatting ONLY:** Use HTML tags for all text styling. Specifically:
-        *   For **bold** text, use <strong>text</strong>.
-        *   For *italic* text, use <em>text</em>.
-    *   **Emojis:** Use sparingly (e.g., 🎯, 🔥, 💡) to highlight themes. If an emoji is used for a paragraph or distinct point within an `<li>`, it MUST be placed at the very beginning of that paragraph/point. Do NOT use emojis for the final quote `<li>`.
-    *   **Keyword-Driven Points:** Each narrative `<li>` item (the 2-3 points before the quote) MUST begin with an emoji (optional, but if used, place it at the very start), immediately followed by a <strong>Concise Keyword:</strong> in bold (e.g., <strong>Hard Truth:</strong>, <strong>Strategic Play:</strong>, <strong>Today's Focus:</strong>). This keyword sets the tone for the point. The main content of the point follows this keyword.
-    *   **Clear Steps:** If outlining multiple actions or steps within a single `<li>` point, avoid inline numbered lists (e.g., "1. Do this, 2. Do that"). Instead, present each step clearly. Use line breaks (`<br>`) if necessary for readability between steps within that `<li>` item.
-    *   **Brevity in `<li>`s:** Prefer shorter `<li>` items. Use `<br>` tags within an `<li>` *only if essential* for clarity between very closely related thoughts or distinct steps in a single narrative point.
-    
-    Avoid dense paragraphs. Think "executive summary" with a strong narrative flow.
-
-    Few-Shot Examples (Illustrative, dynamic based on user data. Note how they adhere to: max 3-4 `<li>`s, quote as the final `<li>`, synthesized insights, short sentences, no inline numbered lists, `<strong>` for emphasis, and emojis at the start of points):
-
-    Example 1 (Procrastination on a Key Project):
-    "<li>🎯 <strong>Truth Bomb:</strong> That key project appears stalled. Your logs suggest a pattern of avoidance, not just a simple delay. This is a critical moment to prevent self-sabotage.</li><li>🔥 <strong>Today's Mission:</strong> Dedicate one focused 45-minute block to the smallest, most manageable next step on that project. The goal is to break the inertia NOW.</li><li>💡 <strong>Strategic Reminder:</strong> This isn't just about task completion; it's about rebuilding momentum. Each small win chips away at the resistance and makes the next step easier.</li><li><em>'The secret of getting ahead is getting started.' - Mark Twain</em></li>"
-
-    Example 2 (Neglecting Well-being for Work):
-    "<li>💡 <strong>Hard Reality:</strong> Recent trends show work consistently overshadowing personal well-being. Physical activity is frequently missed. This imbalance will inevitably impact your overall performance and energy.</li><li>🛌 <strong>Non-Negotiable:</strong> Prioritize a 30-minute walk or workout TODAY. No excuses. Protect your energy; it's your most valuable asset for long-term success.</li><li><em>'Take care of your body. It’s the only place you have to live.' - Jim Rohn</em></li>"
-
-    Example 3 (Scattered Focus, Lack of Prioritization):
-    "<li>🎯 <strong>Blunt Assessment:</strong> Your energy seems diffused across multiple secondary interests, while a primary, more impactful goal is lagging. Spreading focus too thin risks achieving mediocrity in all areas.</li><li>🔥 <strong>Today's Focus:</strong> Pause all non-essential projects for now. Identify and execute ONE high-impact task that directly moves your main goal forward. Ruthless prioritization is key today.</li><li><em>'The main thing is to keep the main thing the main thing.' - Stephen Covey</em></li>"
-
-    IMPORTANT OUTPUT FORMAT:
-    Respond with a single string that is a sequence of HTML `<li>` elements.
-    Do NOT include `<ul>` tags, just the `<li>` items. Do NOT return JSON. Do NOT include any other explanatory text, preamble, or sign-off. Your entire response must be only the HTML `<li>` string.
-
-    Data for user {user_name if user_name else user_email} for today - {current_time_str} ({current_weekday_str}).
-
-    User Background Information:
-    {background_info}
-
-    User's Active Tasks:
-    {tasks}
-
-    User's Recent Text Input Logs:
-    {input_log[-10:]}
-
-    Previous Newsletters Context (for reference to avoid repetition and build upon):
-    {previous_newsletters_context}
-
-    Generate the HTML `<li>` string now:
-    """
+    # Replace placeholders in the persona prompt
+    prompt = persona_prompt.format(
+        current_time_str=current_time_str,
+        current_weekday_str=current_weekday_str,
+        background_info=json.dumps(background_info, indent=2),
+        tasks_str=tasks_str,
+        recent_logs_str=recent_logs_str,
+        previous_newsletters_context=previous_newsletters_context
+    )
 
     # We pass an empty conversation history as per the user's request
     combined_content_li_items = _get_newsletter_content_from_llm(prompt)
@@ -196,13 +171,21 @@ def _generate_html_content(user_id, user_email, user_name, session_state):
     else:
         insights_and_nudges_html = processed_content
 
+    # Persona-specific titles
+    persona_titles = {
+        "Pragmatist": "Your Commander's Briefing",
+        "Analyst": "Your Systems Analysis",
+        "Catalyst": "Your Creative Catalyst"
+    }
+    email_title = persona_titles.get(persona_name, "Your State Analysis & Next Steps")
+
     # World-class HTML styling
     html_content = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <title>Your Current State Analysis & Next Steps</title>
+        <title>{email_title}</title>
         <style>
             body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f7f6; color: #333; }}
             .email-wrapper {{ max-width: 600px; margin: 25px auto; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }}
@@ -221,7 +204,7 @@ def _generate_html_content(user_id, user_email, user_name, session_state):
     </head>
     <body>
         <div class="email-wrapper">
-            <div class="header"><h1>Your State Analysis & Next Steps</h1></div>
+            <div class="header"><h1>{email_title}</h1></div>
             <div class="content">
                 <div class="greeting">
                     <p>Hi {greeting_name},</p>
@@ -277,7 +260,7 @@ def _send_email(subject, html_body, to_email, creds):
         logger.error(f"Failed to send newsletter email to {to_email}: {e}", exc_info=True)
         return False
 
-def send_newsletter_for_user(user_id, user_email, user_name, session_state):
+def send_newsletter_for_user(user_id, user_email, user_name, session_state, persona_prompt, persona_name):
     """
     Main public function to generate and send a newsletter to a single user.
     It loads the necessary data from session_state and calls the core sending function.
@@ -296,17 +279,22 @@ def send_newsletter_for_user(user_id, user_email, user_name, session_state):
         and_(NewsletterLog.created_at >= start_of_day, NewsletterLog.created_at <= end_of_day)
     ).count()
 
-    if todays_log_count >= 1:
-        logger.info(f"Newsletter limit of 1 reached today for {user_email}. Skipping.")
+    if todays_log_count >= 3:
+        logger.info(f"Newsletter limit of 3 reached today for {user_email}. Skipping.")
         return {"status": "skipped", "message": "Newsletter limit reached for today."}
 
     creds = _get_email_credentials()
     if not creds["smtp_password"]:
         return {"status": "error", "message": "SMTP_PASSWORD environment variable not set."}
 
-    subject = f"Your State Analysis & Next Steps - {today.strftime('%B %d, %Y')}"
+    persona_titles = {
+        "Pragmatist": "Your Commander's Briefing",
+        "Analyst": "Your Systems Analysis",
+        "Catalyst": "Your Creative Catalyst"
+    }
+    subject = f"{persona_titles.get(persona_name, 'Your State Analysis & Next Steps')} - {today.strftime('%B %d, %Y')}"
     
-    html_content = _generate_html_content(user_id, user_email, user_name, session_state)
+    html_content = _generate_html_content(user_id, user_email, user_name, session_state, persona_prompt, persona_name)
 
     success = _send_email(subject, html_content, user_email, creds)
 

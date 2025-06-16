@@ -261,7 +261,10 @@ def manage_tasks_and_persist_impl(action: str, user: User, task_description: str
         db.commit()
         db.refresh(new_task)
         logger.info(f"Task added: {new_task}")
-        return {"status": "success", "message": f"Task added: '{task_description}'", "task": task_to_dict(new_task)}
+        success_message = f"Task added successfully!  \n- **Description:** '{task_description}'"
+        if new_task.deadline:
+            success_message += f"  \n- **Deadline:** {new_task.deadline.strftime('%Y-%m-%d %H:%M')}"
+        return {"status": "success", "message": success_message, "task": task_to_dict(new_task)}
 
     elif action == "update":
         if task_id is None:
@@ -741,13 +744,13 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
             logger.warning(f"No candidates in LLM response. Prompt feedback: {response.prompt_feedback}")
         else:
             logger.warning("No candidates in LLM response.")
-        return {"text_response": "Sorry, I couldn't generate a response.", "ui_message": None}
+        return {"text_response": "Sorry, I couldn't generate a response. Please try again.", "ui_message": None}
 
     candidate = response.candidates[0]
 
     if not (hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts') and candidate.content.parts):
         logger.warning(f"LLM response candidate has no content or parts. Finish reason: {getattr(candidate, 'finish_reason', 'N/A')}, Safety ratings: {getattr(candidate, 'safety_ratings', 'N/A')}")
-        return {"text_response": "Sorry, I couldn't generate a response.", "ui_message": None}
+        return {"text_response": "Sorry, I couldn't generate a response. Please try again.", "ui_message": None}
 
     # --- Process LLM Response: Text and Function Calls ---
     llm_text_responses = []
@@ -857,7 +860,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
     final_text_response_to_user = " ".join(llm_text_responses).strip()
     
     # The UI message for toast/notification can be the aggregation of all messages
-    ui_update_message = "\n".join(ui_update_messages) if ui_update_messages else None
+    ui_update_message = "  \n\n".join(ui_update_messages) if ui_update_messages else None
 
     # If the LLM provided a text response, use it. Otherwise, use the UI message.
     if not final_text_response_to_user and ui_update_message:
@@ -878,7 +881,7 @@ def get_chat_response(conversation_history, session_state, user_prompt=None, aud
         conversation_history.append({"role": "model", "content": final_text_response_to_user})
 
     # The UI message for toast/notification can be the aggregation of all messages
-    ui_update_message = "\n".join(ui_update_messages) if ui_update_messages else None
+    ui_update_message = "  \n\n".join(ui_update_messages) if ui_update_messages else None
 
     logger.info(f"Final text response to user: {final_text_response_to_user}")
     if ui_update_message:

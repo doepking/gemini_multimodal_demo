@@ -17,7 +17,11 @@ This project is a sophisticated, multimodal AI chat application using Google's G
     *   **Input Log:** A complete history of user inputs, fully editable in the UI.
     *   **Task Management:** A dedicated tab to view, add, delete, and edit tasks. Tasks can also be managed via chat.
     -   **Background Info:** A JSON-based view for providing and updating personal context (goals, values, etc.) to tailor AI responses.
--   **Automated Newsletter Engine:** A "Newsletter" tab allows users to trigger a personalized email newsletter that provides insights and "nudges" based on their recent activity.
+-   **Automated Newsletter "Nudge Engine":** A "Newsletter" tab allows users to trigger a personalized email newsletter that provides insights and "nudges" based on their recent activity & selected persona.
+-   **Newsletter Personas:** Users can choose from different AI personas to tailor the tone and focus of their newsletter:
+    -   **The Pragmatist (General Alistair Finch):** Embodies a field general's mindset, viewing life as a series of campaigns. This persona delivers a direct, authoritative "Commander's Briefing" focused on momentum, decisive action, and strategic execution. It's ideal for users who want to cut through ambiguity and receive clear, actionable orders to conquer their goals.
+    -   **The Analyst (Dr. Aris Thorne):** A systems engineer who sees life as an interconnected set of algorithms and feedback loops. This persona provides a data-driven, "Systems Analysis" of your activity, drawing parallels to economic theories and computational logic. It's perfect for users who want to understand the "why" behind their behavior and identify systemic inefficiencies.
+    -   **The Catalyst (Dr. Elara Vance):** A visionary who blends art and science to spark transformation. This persona offers a creative, gentle, and motivational perspective, encouraging "life experiments" to break patterns and uncover new possibilities. It's suited for users seeking to challenge their assumptions and explore new ideas.
 -   **Streamlined Deployment:** The entire application is containerized with Docker and deployed to Cloud Run using unified `build.sh` and `deploy.sh` scripts that handle both **production** and **development** environments.
 
 ## Architecture Diagram
