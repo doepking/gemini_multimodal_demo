@@ -467,7 +467,7 @@ elif st.session_state.consent_given is True and not (hasattr(st.user, 'is_logged
             **What happens with my data?**
 
             - **Cloud-Based & Secure:** Your data is stored in a secure, private Google Cloud SQL database, protected by Google Cloud's robust security measures.
-            - **You Are in Control:** You have complete control over your data. You can view, edit, and permanently delete your informatin at any time through the app's interface.
+            - **You Are in Control:** You have complete control over your data. You can view, edit, and permanently delete your information at any time through the app's interface.
             """
         )
 
@@ -1049,13 +1049,19 @@ with tab5:
     # --- Persona Selection ---
     persona_dir = "persona_prompts/"
     try:
-        persona_files = [f for f in os.listdir(persona_dir) if f.endswith('.txt')]
+        persona_files = sorted([f for f in os.listdir(persona_dir) if f.endswith('.txt')])
         persona_names = [os.path.splitext(f)[0].replace('_prompt', '').replace('_', ' ').title() for f in persona_files]
+        
+        # Default to 'Pragmatist' if available
+        default_persona = "Pragmatist"
+        default_index = 0
+        if default_persona in persona_names:
+            default_index = persona_names.index(default_persona)
         
         selected_persona_name = st.selectbox(
             "Choose a Persona for your Newsletter:",
             options=persona_names,
-            index=0
+            index=default_index
         )
 
         if st.button("Send Newsletter Now", key="send_newsletter_btn"):

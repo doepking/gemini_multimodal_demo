@@ -107,14 +107,14 @@ def _generate_html_content(user_id, user_email, user_name, session_state, person
     greeting_name = user_name.split()[0] if user_name else user_email.split('@')[0]
     background_info = session_state.get('background_info', {})
 
-    # Get last 50 tasks from session state, sorted by creation date
+    # Get last 20 tasks from session state, sorted by creation date
     all_tasks = session_state.get('tasks', [])
     # Ensure created_at is a datetime object for sorting
     for task in all_tasks:
         if isinstance(task.created_at, str):
             task.created_at = dt.datetime.fromisoformat(task.created_at.replace("Z", "+00:00"))
     
-    recent_tasks = sorted(all_tasks, key=lambda t: t.created_at, reverse=True)[:50]
+    recent_tasks = sorted(all_tasks, key=lambda t: t.created_at, reverse=True)[:20]
     
     tasks_preview = [
         f"Desc: {task.description}, Status: {task.status}, Created: {task.created_at.strftime('%Y-%m-%d %H:%M (%A)')}, Deadline: {task.deadline.strftime('%Y-%m-%d %H:%M (%A)') if task.deadline else 'None'}"
@@ -125,7 +125,7 @@ def _generate_html_content(user_id, user_email, user_name, session_state, person
     # Format input log with weekday
     input_log = session_state.get('input_log', [])
     recent_logs_preview = []
-    for log in input_log[-500:]:  # Last 500 logs
+    for log in input_log[-200:]:  # Last 200 logs
         timestamp = log.created_at.strftime('%Y-%m-%d %H:%M (%A)') if log.created_at else 'No timestamp'
         content_preview = log.content[:500] + "..." if len(log.content) > 500 else log.content
         recent_logs_preview.append(f"[{timestamp}] {content_preview}")
