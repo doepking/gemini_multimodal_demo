@@ -309,7 +309,8 @@ def manage_tasks_and_persist_impl(action: str, user: User, task_description: str
         if deadline:
             update_details.append(f"deadline to '{deadline}'")
         
-        success_message = f"Okay, I've updated Task {task.id} ({', '.join(update_details)})."
+        task_desc_preview = task.description[:75] + "..." if len(task.description) > 75 else task.description
+        success_message = f"Okay, I've updated the task '{task_desc_preview}' ({', '.join(update_details)})."
         return {"status": "success", "message": success_message, "task": task_to_dict(task)}
 
     elif action == "list":
