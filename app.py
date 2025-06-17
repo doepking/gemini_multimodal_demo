@@ -593,14 +593,22 @@ with st.sidebar:
         unsafe_allow_html=True
     )
     image_url = st.user.picture
-    try:
-        response = requests.get(image_url)
-        response.raise_for_status()
-        image_data = base64.b64encode(response.content).decode("utf-8")
-        image_src = f"data:image/jpeg;base64,{image_data}"
-    except requests.exceptions.RequestException as e:
-        image_src = "" # Fallback to an empty string or a default placeholder image
-        st.error(f"Failed to load profile image: {e}")
+    image_url = getattr(st.user, 'picture', None) # Safely get the attribute
+    image_src = "" # Initialize with a fallback for the <img> tag
+
+    if image_url:
+        try:
+            response = requests.get(image_url)
+            response.raise_for_status() # Raises HTTPError for bad responses (4xx or 5xx)
+            image_data = base64.b64encode(response.content).decode("utf-8")
+            image_src = f"data:image/jpeg;base64,{image_data}"
+        except requests.exceptions.RequestException as e:
+            # image_src remains "" as initialized
+            logger.warning(f"Failed to load profile image from {image_url} for user {st.user.email}: {e}")
+            st.warning(f"Could not load your profile image. It might be unavailable or the link broken.") # User-facing warning
+    else:
+        logger.info(f"No profile picture URL found for user {st.user.email}.")
+        # image_src remains "", resulting in no image or a broken image icon. No error/warning to user.
 
     st.markdown(
         f"""
