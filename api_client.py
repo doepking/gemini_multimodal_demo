@@ -72,17 +72,21 @@ def get_chat_response(conversation_history: List[Dict[str, Any]], session_state:
     response.raise_for_status()
     
     # Handle streaming response
+    full_response = None
     for line in response.iter_lines():
         if line:
             decoded_line = line.decode('utf-8')
             if decoded_line.startswith('data:'):
                 try:
                     json_data = json.loads(decoded_line[5:])
-                    return json_data
+                    if "content" in json_data and "parts" in json_data["content"]:
+                        for part in json_data["content"]["parts"]:
+                            if "text" in part:
+                                full_response = json_data
                 except json.JSONDecodeError:
                     # Handle cases where a line is not valid JSON
                     pass
-    return None
+    return full_response
 
 def add_log_entry_and_persist(text_input: str, user_id: int, user_email: str, user_name: str, category_suggestion: str = None):
     """Adds a log entry and persists it via the backend."""
