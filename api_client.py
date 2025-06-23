@@ -50,6 +50,9 @@ def get_chat_response(conversation_history: List[Dict[str, Any]], session_state:
     
     # Convert SessionStateProxy to a serializable dictionary
     serializable_session_state = {key: value for key, value in session_state.items()}
+    serializable_session_state['user_id'] = user['id']
+    serializable_session_state['user_email'] = user['email']
+    serializable_session_state['user_name'] = user['username']
     
     payload = {
         "app_name": "gemini_adk_demo",
