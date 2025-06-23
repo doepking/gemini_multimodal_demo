@@ -65,28 +65,12 @@ def get_chat_response(conversation_history: List[Dict[str, Any]], session_state:
     if audio_file_path:
         with open(audio_file_path, "rb") as f:
             files = {"audio_file": f}
-            response = requests.post(f"{API_URL}/run_sse", headers=headers, data={"payload": json.dumps(payload)}, files=files, timeout=120, stream=True)
+            response = requests.post(f"{API_URL}/run_sse", headers=headers, data={"payload": json.dumps(payload)}, files=files, timeout=120, stream=False)
     else:
-        response = requests.post(f"{API_URL}/run_sse", headers=headers, json=payload, timeout=120, stream=True)
+        response = requests.post(f"{API_URL}/run_sse", headers=headers, json=payload, timeout=120, stream=False)
     
     response.raise_for_status()
-    
-    # Handle streaming response
-    full_response = None
-    for line in response.iter_lines():
-        if line:
-            decoded_line = line.decode('utf-8')
-            if decoded_line.startswith('data:'):
-                try:
-                    json_data = json.loads(decoded_line[5:])
-                    if "content" in json_data and "parts" in json_data["content"]:
-                        for part in json_data["content"]["parts"]:
-                            if "text" in part:
-                                full_response = json_data
-                except json.JSONDecodeError:
-                    # Handle cases where a line is not valid JSON
-                    pass
-    return full_response
+    return response.json()
 
 def add_log_entry_and_persist(text_input: str, user_id: int, user_email: str, user_name: str, category_suggestion: str = None):
     """Adds a log entry and persists it via the backend."""
