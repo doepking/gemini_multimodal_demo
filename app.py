@@ -11,7 +11,7 @@ import random
 from streamlit_extras.stylable_container import stylable_container
 import logging
 
-from utils import (
+from api_client import (
     get_chat_response,
     start_new_chat,
     add_log_entry_and_persist,
@@ -23,10 +23,9 @@ from utils import (
     load_tasks,
     load_background_info,
     get_or_create_user,
-    get_db
 )
-from newsletter import send_newsletter_for_user
-from database import init_db
+# from newsletter import send_newsletter_for_user # No longer needed
+# from database import init_db # No longer needed, handled by backend
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -44,14 +43,8 @@ if not logger.handlers:  # Prevent duplicate handlers if script reruns
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-# --- Database Initialization ---
-try:
-    init_db()
-    logger.info("Database initialization successful.")
-except Exception as e:
-    logger.error(f"Error initializing database: {e}", exc_info=True)
-    st.error("Error initializing database. Please check the logs.")
-    st.stop()
+# The backend now handles database initialization.
+# We can remove the client-side init_db() call.
 
 # --- Consent State Initialization ---
 if 'consent_given' not in st.session_state:
@@ -168,17 +161,22 @@ if "last_audio_duration" not in st.session_state:
 
 # --- Helper Functions ---
 def load_all_data():
-    """Loads all data from the database into the session state."""
-    db = next(get_db())
+    """Loads all data from the backend into the session state."""
     try:
-        user = get_or_create_user(db, st.user.email, st.user.name)
+        user = get_or_create_user(st.user.email, st.user.name)
         st.session_state.user = user
-        st.session_state.input_log = load_input_log(db, user.id)
-        st.session_state.background_info = load_background_info(db, user.id)
-        st.session_state.tasks = load_tasks(db, user.id)
-        logger.info("Session state refreshed from database.")
-    finally:
-        db.close()
+        if user:
+            st.session_state.input_log = load_input_log(user['id'], user['email'], user['username'])
+            st.session_state.background_info = load_background_info(user['id'], user['email'], user['username'])
+            st.session_state.tasks = load_tasks(user['id'], user['email'], user['username'])
+            logger.info("Session state refreshed from backend.")
+        else:
+            st.error("Could not retrieve user information from the backend.")
+            st.stop()
+    except Exception as e:
+        logger.error(f"Error loading data from backend: {e}", exc_info=True)
+        st.error("Could not connect to the backend. Please make sure the server is running.")
+        st.stop()
 
 # --- Initialize Session State and Data ---
 if hasattr(st, 'user') and st.user.is_logged_in:
@@ -310,19 +308,7 @@ def calculate_task_stats(tasks):
     if not tasks:
         return {"open_tasks": 0, "completed_tasks": 0}
 
-    # Convert tasks (which are likely ORM objects) to a list of dicts
-    tasks_for_df = [
-        {
-            "id": task.id,
-            "description": task.description,
-            "status": task.status,
-            "deadline": task.deadline,
-            "created_at": task.created_at
-        }
-        for task in tasks
-    ]
-    
-    df = pd.DataFrame(tasks_for_df)
+    df = pd.DataFrame(tasks)
     
     # Now, the 'status' column should exist
     open_tasks = df[df['status'].isin(['open', 'in_progress'])].shape[0]
@@ -346,16 +332,7 @@ def calculate_activity_data(input_log, tasks):
             **task_stats
         }
 
-    df = pd.DataFrame([
-        {
-            "id": log.id,
-            "user_id": log.user_id,
-            "content": log.content,
-            "category": log.category,
-            "created_at": log.created_at
-        }
-        for log in input_log
-    ])
+    df = pd.DataFrame(input_log)
     df['date'] = pd.to_datetime(df['created_at']).dt.date
     
     todays_logs = df[df['date'] == today].shape[0]
@@ -667,36 +644,11 @@ with st.sidebar:
         else:
             st.warning("This action is irreversible. All your data (inputs, tasks & background info) will be permanently deleted.")
             if st.button("Confirm Purge", key="purge_confirm", type="primary", use_container_width=True):
-                try:
-                    db = next(get_db())
-                    user = get_or_create_user(db, st.user.email, st.user.name)
-                    if user:
-                        logger.info(f"Initiating data purge for user: {user.email}")
-                        from utils import purge_user_data
-                        purge_success = purge_user_data(user.id)
-                        if purge_success:
-                            logger.info(f"Main app data purge successful for user: {user.email}")
-                            
-                            # Proceed with logout and session reset
-                            st.session_state.consent_given = None # Reset consent state
-                            st.session_state.confirm_purge = False # Reset confirmation
-                            st.logout() # Log the user out
-                        else:
-                            logger.error(f"Main app data purge failed for user: {user.email}")
-                            st.error("An error occurred during data deletion. Please contact support.")
-                            st.session_state.confirm_purge = False # Reset confirmation on error
-                    else:
-                        logger.warning(f"Attempted purge for non-existent user: {st.user.email}")
-                        st.error("User not found.")
-                        st.session_state.confirm_purge = False
-                except Exception as e:
-                    logger.error(f"Exception during data purge confirmation for {st.user.email}: {e}", exc_info=True)
-                    st.error("An unexpected error occurred during data deletion.")
-                    st.session_state.confirm_purge = False
-                finally:
-                    if 'db' in locals() and db:
-                        db.close()
-                    st.rerun()
+                # This functionality should be handled by the backend now.
+                # For now, we can disable it on the frontend.
+                st.error("Data purging is currently handled by the backend administrator.")
+                st.session_state.confirm_purge = False
+                st.rerun()
     
     st.markdown("---") # Separator
     # Link to Privacy Policy and Impressum in sidebar as well
@@ -716,7 +668,7 @@ with st.sidebar:
             key="sidebar_download_imprint"
         )
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info", "Newsletter"])
+tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info"])
 
 with tab1:
     # --- Determine personalized chat input placeholder and subheader ---
@@ -819,8 +771,12 @@ with tab1:
                 )
             
             # Response_data might be a string or a dict if function calling is involved
+            logger.info(f"Response data from backend: {response_data}")
             if isinstance(response_data, dict):
-                assistant_response = response_data.get("text_response", "Function call processed.")
+                if "output" in response_data and "message" in response_data["output"]:
+                    assistant_response = response_data["output"]["message"]["parts"][0]["text"]
+                else:
+                    assistant_response = response_data.get("text_response", "Function call processed.")
                 # Further handling for UI updates based on function calls can be added here
             else:
                 assistant_response = response_data
@@ -848,8 +804,12 @@ with tab1:
                 user_prompt=prompt
             )
 
+        logger.info(f"Response data from backend: {response_data}")
         if isinstance(response_data, dict):
-            assistant_response = response_data.get("text_response", "Function call processed.")
+            if "output" in response_data and "message" in response_data["output"]:
+                assistant_response = response_data["output"]["message"]["parts"][0]["text"]
+            else:
+                assistant_response = response_data.get("text_response", "Function call processed.")
             # Further handling for UI updates based on function calls can be added here
         else:
             assistant_response = response_data
@@ -864,22 +824,11 @@ with tab2:
         st.info("No inputs logged yet.")
     else:
         # Sort logs by timestamp descending
-        sorted_logs = sorted(st.session_state.input_log, key=lambda x: x.created_at, reverse=True)
-
-        # Convert list of ORM objects to a list of dictionaries for DataFrame creation
-        logs_for_df = [
-            {
-                "id": log.id,
-                "created_at": log.created_at,
-                "content": log.content,
-                "category": log.category
-            }
-            for log in sorted_logs
-        ]
+        sorted_logs = sorted(st.session_state.input_log, key=lambda x: x['created_at'], reverse=True)
 
         # Use a data editor to allow for changes
         edited_logs_df = st.data_editor(
-            pd.DataFrame(logs_for_df),
+            pd.DataFrame(sorted_logs),
             num_rows="dynamic",
             hide_index=True,
             use_container_width=True,
@@ -900,7 +849,8 @@ with tab2:
 
         if st.button("Save Log Changes"):
             updated_logs = edited_logs_df.to_dict('records')
-            result = update_input_log_and_persist(updated_logs, st.session_state.user)
+            user = st.session_state.user
+            result = update_input_log_and_persist(updated_logs, user['id'], user['email'], user['username'])
             st.success(result.get("message", "Logs updated!"))
             st.rerun()
 
@@ -909,7 +859,8 @@ with tab2:
         submit_log = st.form_submit_button("Add to Log")
 
         if submit_log and new_log_content:
-            result = add_log_entry_and_persist(new_log_content, st.session_state.user)
+            user = st.session_state.user
+            result = add_log_entry_and_persist(new_log_content, user['id'], user['email'], user['username'])
             st.success(result.get("message", "Log added successfully!"))
             st.rerun()
 
@@ -921,21 +872,8 @@ with tab3:
         # Tasks are already pre-sorted by the load_tasks function
         sorted_tasks = st.session_state.tasks
         
-        # Convert list of ORM objects to a list of dictionaries for DataFrame creation
-        tasks_for_df = [
-            {
-                "id": task.id,
-                "description": task.description,
-                "status": task.status,
-                "deadline": task.deadline,
-                "created_at": task.created_at,
-                "completed_at": task.completed_at
-            }
-            for task in sorted_tasks
-        ]
-
         # Convert list of dicts to DataFrame for editing
-        df_tasks = pd.DataFrame(tasks_for_df)
+        df_tasks = pd.DataFrame(sorted_tasks)
         # Ensure columns are in a consistent order
         df_tasks = df_tasks[["id", "created_at", "description", "status", "deadline", "completed_at"]]
         df_tasks["deadline"] = pd.to_datetime(df_tasks["deadline"])
@@ -976,7 +914,8 @@ with tab3:
             # Convert deadline back to ISO string before saving
             edited_tasks_df['Deadline'] = edited_tasks_df['Deadline'].apply(lambda x: x.isoformat() if pd.notna(x) else None)
             updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Deadline": "deadline", "Created At": "created_at", "Completed At": "completed_at"}).to_dict('records')
-            result = update_tasks_and_persist(updated_tasks, st.session_state.user)
+            user = st.session_state.user
+            result = update_tasks_and_persist(updated_tasks, user['id'], user['email'], user['username'])
             st.success(result.get("message", "Task changes saved!"))
             st.rerun()
 
@@ -1001,7 +940,8 @@ with tab3:
             new_task_deadline_utc = new_task_deadline.astimezone(dt.timezone.utc)
             
             deadline_str = new_task_deadline_utc.isoformat()
-            result = add_task_and_persist(new_task_description, st.session_state.user, deadline=deadline_str)
+            user = st.session_state.user
+            result = add_task_and_persist(new_task_description, user['id'], user['email'], user['username'], deadline=deadline_str)
             st.success(result.get("message", f"Task '{new_task_description}' added!"))
             st.rerun()
 
@@ -1023,8 +963,9 @@ with tab4:
             submitted = st.form_submit_button("Save Changes")
             if submitted:
                 try:
+                    user = st.session_state.user
                     # The function expects a JSON string, so this works perfectly
-                    result = update_background_info_and_persist(background_text, st.session_state.user, replace=True)
+                    result = update_background_info_and_persist(background_text, user['id'], user['email'], user['username'], replace=True)
                     if result.get("status") == "success":
                         st.session_state.background_info = result["updated_info"]
                         st.success(result.get("message", "Background information updated!"))
@@ -1048,60 +989,3 @@ with tab4:
             if st.button("Edit Background Info"):
                 toggle_edit_mode()
                 st.rerun()
-
-with tab5:
-    st.header("Manual Newsletter Trigger")
-    st.write("Select a persona and click the button below to trigger a newsletter send to your own email address.")
-    st.warning("Note: This requires SMTP environment variables to be set correctly in your project's `.env` file (e.g., `SMTP_HOST`, `SMTP_PORT`, `SMTP_PASSWORD`).", icon="⚠️")
-
-    # --- Persona Selection ---
-    persona_dir = "persona_prompts/"
-    try:
-        persona_files = sorted([f for f in os.listdir(persona_dir) if f.endswith('.txt')])
-        persona_names = [os.path.splitext(f)[0].replace('_prompt', '').replace('_', ' ').title() for f in persona_files]
-        
-        # Default to 'Pragmatist' if available
-        default_persona = "Pragmatist"
-        default_index = 0
-        if default_persona in persona_names:
-            default_index = persona_names.index(default_persona)
-        
-        selected_persona_name = st.selectbox(
-            "Choose a Persona for your Newsletter:",
-            options=persona_names,
-            index=default_index
-        )
-
-        if st.button("Send Newsletter Now", key="send_newsletter_btn"):
-            # Find the corresponding file for the selected persona name
-            selected_persona_file = ""
-            for i, name in enumerate(persona_names):
-                if name == selected_persona_name:
-                    selected_persona_file = persona_files[i]
-                    break
-            
-            if selected_persona_file:
-                with open(os.path.join(persona_dir, selected_persona_file), 'r') as f:
-                    persona_prompt = f.read()
-
-                with st.spinner(f"Sending newsletter with '{selected_persona_name}' persona..."):
-                    result = send_newsletter_for_user(
-                        user_id=st.session_state.user.id,
-                        user_email=st.user.email,
-                        user_name=st.user.name,
-                        session_state=st.session_state,
-                        persona_prompt=persona_prompt,
-                        persona_name=selected_persona_name
-                    )
-
-                if result.get("status") == "success":
-                    st.success(result.get("message", "Newsletter sent successfully!"))
-                else:
-                    st.error(result.get("message", "An unknown error occurred."))
-            else:
-                st.error("Could not find the selected persona file.")
-
-    except FileNotFoundError:
-        st.error(f"Persona prompts directory not found at '{persona_dir}'. Please ensure it exists.")
-    except Exception as e:
-        st.error(f"An error occurred while loading personas: {e}")
