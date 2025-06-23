@@ -773,13 +773,12 @@ with tab1:
             # Response_data might be a string or a dict if function calling is involved
             logger.info(f"Response data from backend: {response_data}")
             if isinstance(response_data, dict):
-                if "output" in response_data and "message" in response_data["output"]:
-                    assistant_response = response_data["output"]["message"]["parts"][0]["text"]
+                if "content" in response_data and "parts" in response_data["content"]:
+                    assistant_response = response_data["content"]["parts"][0]["text"]
                 else:
-                    assistant_response = response_data.get("text_response", "Function call processed.")
-                # Further handling for UI updates based on function calls can be added here
+                    assistant_response = "Function call processed."
             else:
-                assistant_response = response_data
+                assistant_response = "No response from assistant."
 
             st.session_state.messages.append({"role": "assistant", "content": assistant_response})
             st.rerun()
@@ -806,13 +805,12 @@ with tab1:
 
         logger.info(f"Response data from backend: {response_data}")
         if isinstance(response_data, dict):
-            if "output" in response_data and "message" in response_data["output"]:
-                assistant_response = response_data["output"]["message"]["parts"][0]["text"]
+            if "content" in response_data and "parts" in response_data["content"]:
+                assistant_response = response_data["content"]["parts"][0]["text"]
             else:
-                assistant_response = response_data.get("text_response", "Function call processed.")
-            # Further handling for UI updates based on function calls can be added here
+                assistant_response = "Function call processed."
         else:
-            assistant_response = response_data
+            assistant_response = "No response from assistant."
 
         st.session_state.messages.append({"role": "assistant", "content": assistant_response})
         st.session_state.counter += 1
