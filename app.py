@@ -167,7 +167,8 @@ def load_all_data():
         st.session_state.user = user
         if user:
             st.session_state.input_log = load_input_log(user['id'], user['email'], user['username'])
-            st.session_state.background_info = load_background_info(user['id'], user['email'], user['username'])
+            background_info_data = load_background_info(user['id'], user['email'], user['username'])
+            st.session_state.background_info = background_info_data.get('content', {})
             st.session_state.tasks = load_tasks(user['id'], user['email'], user['username'])
             logger.info("Session state refreshed from backend.")
         else:

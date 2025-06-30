@@ -3,6 +3,16 @@ import json
 import os
 from typing import List, Dict, Any
 import uuid
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
 
 API_URL = os.getenv("API_BASE_URL", "http://localhost:8080")
 
@@ -44,6 +54,7 @@ def create_session(user_email: str, session_id: str):
 def get_chat_response(conversation_history: List[Dict[str, Any]], session_state: Dict[str, Any], user_prompt: str = None, audio_file_path: str = None) -> Dict[str, Any]:
     """Gets a chat response from the backend."""
     user = session_state.get("user")
+    logger.info(f"api_client.get_chat_response: user from session_state: {user}")
     session_id = f"test-session-{uuid.uuid4()}"
     create_session(user["email"], session_id)
     headers = {"X-User-Email": user["email"], "X-User-Name": user["username"]}
@@ -65,6 +76,7 @@ def get_chat_response(conversation_history: List[Dict[str, Any]], session_state:
         "streaming": False,
         "session_state": serializable_session_state,
     }
+    logger.info(f"api_client.get_chat_response: payload being sent: {json.dumps(payload, indent=2)}")
     if audio_file_path:
         with open(audio_file_path, "rb") as f:
             files = {"audio_file": f}
