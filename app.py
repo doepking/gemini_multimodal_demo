@@ -10,10 +10,10 @@ import base64
 import random
 from streamlit_extras.stylable_container import stylable_container
 import logging
+import asyncio
 
 from api_client import (
     get_chat_response,
-    start_new_chat,
     add_log_entry_and_persist,
     add_task_and_persist,
     update_background_info_and_persist,
@@ -150,8 +150,6 @@ def show_consent_banner():
                     st.rerun()
 
 # --- Initialize Session State ---
-if "conversation_history" not in st.session_state:
-    st.session_state.conversation_history = start_new_chat()
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_audio_duration" not in st.session_state:
@@ -160,16 +158,21 @@ if "last_audio_duration" not in st.session_state:
     st.session_state.counter = 0 # Used for unique keys for recorder/input
 
 # --- Helper Functions ---
-def load_all_data():
-    """Loads all data from the backend into the session state."""
+async def load_all_data_async():
+    """Loads all data from the backend into the session state asynchronously."""
     try:
-        user = get_or_create_user(st.user.email, st.user.name)
+        user = await get_or_create_user(st.user.email, st.user.name)
         st.session_state.user = user
         if user:
-            st.session_state.input_log = load_input_log(user['id'], user['email'], user['username'])
-            background_info_data = load_background_info(user['id'], user['email'], user['username'])
-            st.session_state.background_info = background_info_data.get('content', {})
-            st.session_state.tasks = load_tasks(user['id'], user['email'], user['username'])
+            # Run all loading functions concurrently
+            results = await asyncio.gather(
+                load_input_log(user['id'], user['email'], user['username']),
+                load_background_info(user['id'], user['email'], user['username']),
+                load_tasks(user['id'], user['email'], user['username'])
+            )
+            st.session_state.input_log = results[0]
+            st.session_state.background_info = results[1].get('content', {})
+            st.session_state.tasks = results[2]
             logger.info("Session state refreshed from backend.")
         else:
             st.error("Could not retrieve user information from the backend.")
@@ -178,6 +181,10 @@ def load_all_data():
         logger.error(f"Error loading data from backend: {e}", exc_info=True)
         st.error("Could not connect to the backend. Please make sure the server is running.")
         st.stop()
+
+def load_all_data():
+    """Synchronous wrapper for the async data loading function."""
+    asyncio.run(load_all_data_async())
 
 # --- Initialize Session State and Data ---
 if hasattr(st, 'user') and st.user.is_logged_in:
@@ -764,12 +771,14 @@ with tab1:
                 st.audio(audio_bytes, format="audio/wav")
 
             with st.spinner("Thinking..."):
-                # Pass session state to get_chat_response for function calling
-                response_data = get_chat_response(
-                    st.session_state.conversation_history,
-                    st.session_state,
+                # Backend handles all conversation state
+                user = st.session_state.user
+                response_data = asyncio.run(get_chat_response(
+                    user['id'],
+                    user['email'],
+                    user['username'],
                     audio_file_path=tmp_audio_path
-                )
+                ))
             
             # Response_data might be a string or a dict if function calling is involved
             logger.info(f"Response data from backend: {response_data}")
@@ -797,12 +806,14 @@ with tab1:
             st.markdown(prompt)
 
         with st.spinner("Thinking..."):
-            # Pass session state to get_chat_response for function calling
-            response_data = get_chat_response(
-                st.session_state.conversation_history,
-                st.session_state,
+            # Backend handles all conversation state
+            user = st.session_state.user
+            response_data = asyncio.run(get_chat_response(
+                user['id'],
+                user['email'],
+                user['username'],
                 user_prompt=prompt
-            )
+            ))
 
         logger.info(f"Response data from backend: {response_data}")
         if isinstance(response_data, dict):
@@ -849,7 +860,7 @@ with tab2:
         if st.button("Save Log Changes"):
             updated_logs = edited_logs_df.to_dict('records')
             user = st.session_state.user
-            result = update_input_log_and_persist(updated_logs, user['id'], user['email'], user['username'])
+            result = asyncio.run(update_input_log_and_persist(updated_logs, user['id'], user['email'], user['username']))
             st.success(result.get("message", "Logs updated!"))
             st.rerun()
 
@@ -859,7 +870,7 @@ with tab2:
 
         if submit_log and new_log_content:
             user = st.session_state.user
-            result = add_log_entry_and_persist(new_log_content, user['id'], user['email'], user['username'])
+            result = asyncio.run(add_log_entry_and_persist(new_log_content, user['id'], user['email'], user['username']))
             st.success(result.get("message", "Log added successfully!"))
             st.rerun()
 
@@ -875,17 +886,17 @@ with tab3:
         df_tasks = pd.DataFrame(sorted_tasks)
         # Ensure columns are in a consistent order
         df_tasks = df_tasks[["id", "created_at", "description", "status", "deadline", "completed_at"]]
-        df_tasks["deadline"] = pd.to_datetime(df_tasks["deadline"])
+        # Convert deadline to timezone-aware UTC datetime objects for correct handling
+        df_tasks["deadline"] = pd.to_datetime(df_tasks["deadline"], utc=True)
         df_tasks.rename(columns={"id": "ID", "description": "Description", "status": "Status", "deadline": "Deadline", "created_at": "Created At", "completed_at": "Completed At"}, inplace=True)
 
         edited_tasks_df = st.data_editor(
             df_tasks,
             num_rows="dynamic",
-            hide_index=True,
             use_container_width=True,
             key="data_editor_tasks",
             column_config={
-                "ID": None,
+                "ID": None, # Explicitly hide the ID column
                 "Created At": st.column_config.DatetimeColumn(
                     "Created At",
                     format="YYYY-MM-DD HH:mm:ss",
@@ -906,15 +917,19 @@ with tab3:
                     required=True
                 ),
             },
+            # By not including "ID" in column_order, we also ensure it's not displayed.
             column_order=["Created At", "Description", "Status", "Deadline", "Completed At"]
         )
 
         if st.button("Save Task Changes"):
+            tasks_to_save = edited_tasks_df
+
             # Convert deadline back to ISO string before saving
-            edited_tasks_df['Deadline'] = edited_tasks_df['Deadline'].apply(lambda x: x.isoformat() if pd.notna(x) else None)
-            updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Deadline": "deadline", "Created At": "created_at", "Completed At": "completed_at"}).to_dict('records')
+            tasks_to_save['Deadline'] = tasks_to_save['Deadline'].apply(lambda x: x.isoformat() if pd.notna(x) else None)
+            updated_tasks = tasks_to_save.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Deadline": "deadline", "Created At": "created_at", "Completed At": "completed_at"}).to_dict('records')
+
             user = st.session_state.user
-            result = update_tasks_and_persist(updated_tasks, user['id'], user['email'], user['username'])
+            result = asyncio.run(update_tasks_and_persist(updated_tasks, user['id'], user['email'], user['username']))
             st.success(result.get("message", "Task changes saved!"))
             st.rerun()
 
@@ -940,7 +955,7 @@ with tab3:
             
             deadline_str = new_task_deadline_utc.isoformat()
             user = st.session_state.user
-            result = add_task_and_persist(new_task_description, user['id'], user['email'], user['username'], deadline=deadline_str)
+            result = asyncio.run(add_task_and_persist(new_task_description, user['id'], user['email'], user['username'], deadline=deadline_str))
             st.success(result.get("message", f"Task '{new_task_description}' added!"))
             st.rerun()
 
@@ -962,11 +977,15 @@ with tab4:
             submitted = st.form_submit_button("Save Changes")
             if submitted:
                 try:
-                    user = st.session_state.user
-                    # The function expects a JSON string, so this works perfectly
-                    result = update_background_info_and_persist(background_text, user['id'], user['email'], user['username'], replace=True)
-                    if result.get("status") == "success":
-                        st.session_state.background_info = result["updated_info"]
+                    with st.spinner("Updating background info..."):
+                        user = st.session_state.user
+                        # The function expects a JSON string, so this works perfectly
+                        result = asyncio.run(update_background_info_and_persist(background_text, user['id'], user['email'], user['username'], replace=True))
+
+                    if result and result.get("status") == "success":
+                        # Ensure 'updated_info' is present in the response
+                        if "updated_info" in result:
+                            st.session_state.background_info = result["updated_info"]["content"]
                         st.success(result.get("message", "Background information updated!"))
                         toggle_edit_mode() # Exit edit mode on success
                         st.rerun()
