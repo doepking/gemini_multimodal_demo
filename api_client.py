@@ -1,9 +1,10 @@
-import requests
+import httpx
 import json
 import os
 from typing import List, Dict, Any
 import uuid
 import logging
+import base64
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -16,133 +17,150 @@ if not logger.handlers:
 
 API_URL = os.getenv("API_BASE_URL", "http://localhost:8080")
 
-def get_or_create_user(user_email: str, user_name: str) -> Dict[str, Any]:
+async def get_or_create_user(user_email: str, user_name: str) -> Dict[str, Any]:
     """Gets a user from the backend or creates one if it doesn't exist."""
     headers = {"X-User-Email": user_email, "X-User-Name": user_name}
-    response = requests.get(f"{API_URL}/users/by_email/{user_email}", headers=headers)
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.get(f"{API_URL}/users/by_email/{user_email}", headers=headers)
     response.raise_for_status()
     return response.json()
 
-def load_input_log(user_id: int, user_email: str, user_name: str) -> List[Dict[str, Any]]:
+async def load_input_log(user_id: int, user_email: str, user_name: str) -> List[Dict[str, Any]]:
     """Loads the input log for a user from the backend."""
     headers = {"X-User-Email": user_email, "X-User-Name": user_name}
-    response = requests.get(f"{API_URL}/users/{user_id}/text_inputs", headers=headers)
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.get(f"{API_URL}/users/{user_id}/text_inputs", headers=headers)
     response.raise_for_status()
     return response.json()
 
-def load_tasks(user_id: int, user_email: str, user_name: str) -> List[Dict[str, Any]]:
+async def load_tasks(user_id: int, user_email: str, user_name: str) -> List[Dict[str, Any]]:
     """Loads the tasks for a user from the backend."""
     headers = {"X-User-Email": user_email, "X-User-Name": user_name}
-    response = requests.get(f"{API_URL}/users/{user_id}/tasks", headers=headers)
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.get(f"{API_URL}/users/{user_id}/tasks", headers=headers)
     response.raise_for_status()
     return response.json()
 
-def load_background_info(user_id: int, user_email: str, user_name: str) -> Dict[str, Any]:
+async def load_background_info(user_id: int, user_email: str, user_name: str) -> Dict[str, Any]:
     """Loads the background info for a user from the backend."""
     headers = {"X-User-Email": user_email, "X-User-Name": user_name}
-    response = requests.get(f"{API_URL}/users/{user_id}/background_info", headers=headers)
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.get(f"{API_URL}/users/{user_id}/background_info", headers=headers)
     response.raise_for_status()
     return response.json()
 
-def create_session(user_email: str, session_id: str):
+async def create_session(user: Dict[str, Any], session_id: str):
     """Creates a new session for the agent."""
-    headers = {"X-User-Email": user_email}
-    response = requests.post(f"{API_URL}/apps/gemini_adk_demo/users/{user_email}/sessions/{session_id}", headers=headers, json={"state": {}})
+    session_state = {
+        "user_id": user["id"],
+        "user_email": user["email"],
+        "user_name": user.get("username", "Unknown User")
+    }
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post(f"{API_URL}/apps/gemini_adk_demo/users/{user['id']}/sessions/{session_id}", json=session_state)
     response.raise_for_status()
     return response.json()
 
-def get_chat_response(conversation_history: List[Dict[str, Any]], session_state: Dict[str, Any], user_prompt: str = None, audio_file_path: str = None) -> Dict[str, Any]:
+async def get_chat_response(user_id: int, user_email: str, user_name: str, user_prompt: str = None, audio_file_path: str = None) -> Dict[str, Any]:
     """Gets a chat response from the backend."""
-    user = session_state.get("user")
-    logger.info(f"api_client.get_chat_response: user from session_state: {user}")
+    logger.info(f"api_client.get_chat_response: user_id: {user_id}")
     session_id = f"test-session-{uuid.uuid4()}"
-    create_session(user["email"], session_id)
-    headers = {"X-User-Email": user["email"], "X-User-Name": user["username"]}
     
-    # Convert SessionStateProxy to a serializable dictionary
-    serializable_session_state = {key: value for key, value in session_state.items()}
-    serializable_session_state['user_id'] = user['id']
-    serializable_session_state['user_email'] = user['email']
-    serializable_session_state['user_name'] = user['username']
+    # Create session with minimal user info
+    user_info = {"id": user_id, "email": user_email, "username": user_name}
+    await create_session(user_info, session_id)
     
+    parts = []
+    if user_prompt:
+        parts.append({"text": user_prompt})
+
+    if audio_file_path:
+        with open(audio_file_path, "rb") as audio_file:
+            audio_bytes = audio_file.read()
+
+        encoded_audio = base64.b64encode(audio_bytes).decode('utf-8')
+
+        audio_part = {
+            "inline_data": {
+                "mime_type": "audio/wav",
+                "data": encoded_audio
+            }
+        }
+        parts.append(audio_part)
+
     payload = {
         "app_name": "gemini_adk_demo",
-        "user_id": user["email"],
+        "user_id": str(user_id),
         "session_id": session_id,
         "new_message": {
             "role": "user",
-            "parts": [{"text": user_prompt}]
+            "parts": parts
         },
         "streaming": False,
-        "session_state": serializable_session_state,
     }
-    logger.info(f"api_client.get_chat_response: payload being sent: {json.dumps(payload, indent=2)}")
-    if audio_file_path:
-        with open(audio_file_path, "rb") as f:
-            files = {"audio_file": f}
-            response = requests.post(f"{API_URL}/run_sse", headers=headers, data={"payload": json.dumps(payload)}, files=files, timeout=120, stream=True)
-    else:
-        response = requests.post(f"{API_URL}/run_sse", headers=headers, json=payload, timeout=120, stream=True)
+
+    logger.info(f"api_client.get_chat_response: sending payload for user {user_id}")
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        response = await client.post(f"{API_URL}/run_sse", json=payload)
     
     response.raise_for_status()
     
     # Handle streaming response
     full_response = None
-    for line in response.iter_lines():
-        if line:
-            decoded_line = line.decode('utf-8')
-            if decoded_line.startswith('data:'):
-                try:
-                    json_data = json.loads(decoded_line[5:])
-                    if "content" in json_data and "parts" in json_data["content"]:
-                        for part in json_data["content"]["parts"]:
-                            if "text" in part:
-                                full_response = json_data
-                except json.JSONDecodeError:
-                    # Handle cases where a line is not valid JSON
-                    pass
+    # Since the original code uses iter_lines, we will simulate a similar behavior with the async response.
+    # Note: httpx's streaming response is handled differently. For a simple case, we'll read the whole response.
+    # For true async streaming, one would use `async for` on the response object.
+    # However, the original logic just finds the last valid JSON, so reading at once is fine here.
+    lines = response.text.splitlines()
+    for line in lines:
+        if line.startswith('data:'):
+            try:
+                json_data = json.loads(line[5:])
+                if "content" in json_data and "parts" in json_data["content"]:
+                    for part in json_data["content"]["parts"]:
+                        if "text" in part:
+                            full_response = json_data
+            except json.JSONDecodeError:
+                pass
     return full_response
 
-def add_log_entry_and_persist(text_input: str, user_id: int, user_email: str, user_name: str, category_suggestion: str = None):
+async def add_log_entry_and_persist(text_input: str, user_id: int, user_email: str, user_name: str, category_suggestion: str = None):
     """Adds a log entry and persists it via the backend."""
     headers = {"X-User-Email": user_email, "X-User-Name": user_name}
-    response = requests.post(f"{API_URL}/users/{user_id}/text_inputs", headers=headers, json={"content": text_input, "category": category_suggestion})
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post(f"{API_URL}/users/{user_id}/text_inputs", headers=headers, json={"content": text_input, "category": category_suggestion})
     response.raise_for_status()
     return response.json()
 
-def update_background_info_and_persist(background_update_json: str, user_id: int, user_email: str, user_name: str, replace: bool = False):
+async def update_background_info_and_persist(background_update_json: str, user_id: int, user_email: str, user_name: str, replace: bool = False):
     """Updates background info and persists it via the backend."""
     headers = {"X-User-Email": user_email, "X-User-Name": user_name}
-    response = requests.put(f"{API_URL}/users/{user_id}/background_info", headers=headers, json={"content": json.loads(background_update_json)})
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.put(f"{API_URL}/users/{user_id}/background_info", headers=headers, json={"content": json.loads(background_update_json)})
     response.raise_for_status()
     return response.json()
 
-def add_task_and_persist(task_description: str, user_id: int, user_email: str, user_name: str, deadline: str = None):
+async def add_task_and_persist(task_description: str, user_id: int, user_email: str, user_name: str, deadline: str = None):
     """Adds a task and persists it via the backend."""
     headers = {"X-User-Email": user_email, "X-User-Name": user_name}
-    response = requests.post(f"{API_URL}/users/{user_id}/tasks", headers=headers, json={"description": task_description, "deadline": deadline})
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post(f"{API_URL}/users/{user_id}/tasks", headers=headers, json={"description": task_description, "deadline": deadline})
     response.raise_for_status()
     return response.json()
 
-def update_tasks_and_persist(tasks_list: list, user_id: int, user_email: str, user_name: str):
+async def update_tasks_and_persist(tasks_list: list, user_id: int, user_email: str, user_name: str):
     """Updates the task list and persists it via the backend."""
     headers = {"X-User-Email": user_email, "X-User-Name": user_name}
-    results = []
-    for task in tasks_list:
-        task_id = task.get("id")
-        if task_id:
-            response = requests.put(f"{API_URL}/users/{user_id}/tasks/{task_id}", headers=headers, json=task)
-            response.raise_for_status()
-            results.append(response.json())
-    return results
-
-def update_input_log_and_persist(log_list: list, user_id: int, user_email: str, user_name: str):
-    """Updates the input log and persists it via the backend."""
-    headers = {"X-User-Email": user_email, "X-User-Name": user_name}
-    response = requests.put(f"{API_URL}/users/{user_id}/text_inputs", headers=headers, json=log_list)
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.put(f"{API_URL}/users/{user_id}/tasks", headers=headers, json=tasks_list)
     response.raise_for_status()
     return response.json()
 
-def start_new_chat():
-    """Starts a new chat session."""
-    return []
+async def update_input_log_and_persist(log_list: list, user_id: int, user_email: str, user_name: str):
+    """Updates the input log and persists it via the backend."""
+    headers = {"X-User-Email": user_email, "X-User-Name": user_name}
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.put(f"{API_URL}/users/{user_id}/text_inputs", headers=headers, json=log_list)
+    response.raise_for_status()
+    return response.json()
