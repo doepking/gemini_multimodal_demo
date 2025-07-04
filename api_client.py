@@ -5,6 +5,7 @@ from typing import List, Dict, Any
 import uuid
 import logging
 import base64
+import hashlib
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -162,5 +163,45 @@ async def update_input_log_and_persist(log_list: list, user_id: int, user_email:
     headers = {"X-User-Email": user_email, "X-User-Name": user_name}
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.put(f"{API_URL}/users/{user_id}/text_inputs", headers=headers, json=log_list)
+    response.raise_for_status()
+    return response.json()
+
+async def get_recent_metrics(user_email: str, limit: int = 30):
+    """Fetches recent mood check-ins for a user."""
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.get(f"{API_URL}/metrics/user/{user_email}?limit={limit}")
+    # Allow 404s to be handled by the frontend
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.json()
+
+async def get_subscription_status(user_email: str):
+    """Fetches the newsletter subscription status for a user."""
+    async with httpx.AsyncClient(timeout=5) as client:
+        response = await client.get(f"{API_URL}/newsletter/preferences/{user_email}")
+    if response.status_code == 404:
+        return {"subscribed": False}
+    response.raise_for_status()
+    return response.json()
+
+async def unsubscribe_from_newsletter(user_email: str):
+    """Unsubscribes a user from the newsletter."""
+    secret_key = os.environ.get("UNSUBSCRIBE_SECRET_KEY")
+    if not secret_key:
+        raise ValueError("UNSUBSCRIBE_SECRET_KEY is not set in the environment.")
+    
+    token = hashlib.sha256(f"{user_email}{secret_key}".encode()).hexdigest()
+    
+    async with httpx.AsyncClient(timeout=5) as client:
+        response = await client.post(f"{API_URL}/newsletter/unsubscribe/{user_email}/{token}")
+    response.raise_for_status()
+    return response.json()
+
+async def subscribe_to_newsletter(user_email: str):
+    """Subscribes a user to the newsletter."""
+    payload = {"email": user_email}
+    async with httpx.AsyncClient(timeout=5) as client:
+        response = await client.post(f"{API_URL}/newsletter/subscribe", json=payload)
     response.raise_for_status()
     return response.json()
