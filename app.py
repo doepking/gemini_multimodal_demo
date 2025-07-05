@@ -1,6 +1,7 @@
 import os
 import tempfile
 import json
+import uuid
 import streamlit as st
 from audiorecorder import audiorecorder
 import datetime as dt
@@ -13,6 +14,7 @@ import logging
 import asyncio
 
 from api_client import (
+    create_session,
     get_chat_response,
     add_log_entry_and_persist,
     add_task_and_persist,
@@ -23,9 +25,11 @@ from api_client import (
     load_tasks,
     load_background_info,
     get_or_create_user,
+    get_recent_metrics,
+    get_subscription_status,
+    subscribe_to_newsletter,
+    unsubscribe_from_newsletter,
 )
-# from newsletter import send_newsletter_for_user # No longer needed
-# from database import init_db # No longer needed, handled by backend
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -42,9 +46,6 @@ if not logger.handlers:  # Prevent duplicate handlers if script reruns
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
-
-# The backend now handles database initialization.
-# We can remove the client-side init_db() call.
 
 # --- Consent State Initialization ---
 if 'consent_given' not in st.session_state:
@@ -159,11 +160,22 @@ if "last_audio_duration" not in st.session_state:
 
 # --- Helper Functions ---
 async def load_all_data_async():
-    """Loads all data from the backend into the session state asynchronously."""
+    """Loads all data from the backend and initializes the session."""
     try:
-        user = await get_or_create_user(st.user.email, st.user.name)
-        st.session_state.user = user
+        user = st.session_state.get("user")
+        if not user:
+            logger.info("User not found in session state, fetching from backend.")
+            user = await get_or_create_user(st.user.email, st.user.name)
+            st.session_state.user = user
+        else:
+            logger.info("User found in session state.")
+
         if user:
+            # Create session if it doesn't exist
+            if "session_id" not in st.session_state:
+                st.session_state.session_id = f"test-session-{uuid.uuid4()}"
+                await create_session(user, st.session_state.session_id)
+
             # Run all loading functions concurrently
             results = await asyncio.gather(
                 load_input_log(user['id'], user['email'], user['username']),
@@ -676,7 +688,7 @@ with st.sidebar:
             key="sidebar_download_imprint"
         )
 
-tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Chat", "Input Log", "Tasks", "Background Info", "Newsletter"])
 
 with tab1:
     # --- Determine personalized chat input placeholder and subheader ---
@@ -777,6 +789,7 @@ with tab1:
                     user['id'],
                     user['email'],
                     user['username'],
+                    st.session_state.session_id,
                     audio_file_path=tmp_audio_path
                 ))
             
@@ -812,6 +825,7 @@ with tab1:
                 user['id'],
                 user['email'],
                 user['username'],
+                st.session_state.session_id,
                 user_prompt=prompt
             ))
 
@@ -1007,3 +1021,64 @@ with tab4:
             if st.button("Edit Background Info"):
                 toggle_edit_mode()
                 st.rerun()
+
+with tab5:
+    if not st.user or not hasattr(st.user, 'email'):
+        st.warning("Please log in to manage newsletter subscriptions and log daily metrics.")
+        st.stop()
+
+    user_email = st.user.email
+
+    st.subheader("Your Recent Mood Check-ins")
+    try:
+        metrics_data = asyncio.run(get_recent_metrics(user_email))
+        if metrics_data and isinstance(metrics_data, list) and len(metrics_data) > 0:
+            df_metrics = pd.DataFrame(metrics_data)
+            display_columns_map = {
+                "metric_date": "Date",
+                "morning_mood_subjective": "Logged Mood"
+            }
+            cols_to_display = [col for col in display_columns_map.keys() if col in df_metrics.columns]
+
+            if "morning_mood_subjective" not in cols_to_display:
+                st.info("No recent mood check-ins with mood data found.")
+            else:
+                df_display = df_metrics[cols_to_display].rename(columns=display_columns_map)
+                ordered_display_cols = [display_columns_map[col] for col in cols_to_display]
+                df_display = df_display[ordered_display_cols]
+                if not df_display.empty:
+                    st.dataframe(df_display, hide_index=True, use_container_width=True)
+                else:
+                    st.info("No recent mood check-ins with mood data found.")
+        else:
+            st.info("No recent mood check-ins found.")
+    except Exception as e:
+        st.error(f"An error occurred while fetching recent check-ins: {e}")
+
+    st.markdown("---")
+    st.subheader("Manage Newsletter")
+
+    try:
+        subscription_data = asyncio.run(get_subscription_status(user_email))
+        subscribed = subscription_data.get("subscribed", False)
+
+        if subscribed:
+            st.success("You are currently subscribed to the daily newsletter.")
+            if st.button("Unsubscribe from Newsletter", key="unsubscribe_newsletter_btn"):
+                try:
+                    asyncio.run(unsubscribe_from_newsletter(user_email))
+                    st.success("Successfully unsubscribed!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to unsubscribe: {e}")
+        else:
+            st.info("You are not currently subscribed to the daily newsletter.")
+            if st.button("Subscribe to Daily Newsletter", key="subscribe_newsletter_btn"):
+                try:
+                    asyncio.run(subscribe_to_newsletter(user_email))
+                    st.success("Successfully subscribed!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to subscribe: {e}")
+    except Exception as e:
+        st.error(f"Could not retrieve subscription status: {e}")
