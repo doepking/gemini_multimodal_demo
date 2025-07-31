@@ -248,3 +248,14 @@ async def subscribe_to_newsletter(user_email: str):
         response = await client.post(f"{API_URL}/newsletter/subscribe/{user_email}/{token}")
     response.raise_for_status()
     return response.json()
+
+async def purge_user_data(user_id: int, user_email: str):
+    """Permanently deletes all data for a user."""
+    headers = {
+        "X-User-Email": user_email,
+        "X-Internal-API-Key": INTERNAL_API_KEY,
+    }
+    async with httpx.AsyncClient(timeout=120) as client:
+        response = await client.delete(f"{API_URL}/users/{user_id}/purge", headers=headers)
+    response.raise_for_status()
+    return response.json()

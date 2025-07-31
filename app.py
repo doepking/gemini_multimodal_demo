@@ -29,6 +29,7 @@ from api_client import (
     get_subscription_status,
     subscribe_to_newsletter,
     unsubscribe_from_newsletter,
+    purge_user_data,
 )
 
 # --- Page Configuration ---
@@ -476,7 +477,7 @@ elif st.session_state.consent_given is True and not (hasattr(st.user, 'is_logged
     # Custom CSS for the Google Sign-In button
     st.markdown("""
         <style>
-            div[data-testid="stButton"] > button {
+            .login-button {
                 background-color: white;
                 color: black;
                 padding: 10px 20px;
@@ -493,13 +494,21 @@ elif st.session_state.consent_given is True and not (hasattr(st.user, 'is_logged
                 margin-right: auto;
                 width: fit-content;
             }
-            div[data-testid="stButton"] > button:hover {
+            .login-button:hover {
                 box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.4);
                 transform: translateY(-2px);
             }
-            div[data-testid="stButton"] > button:before {
+            .login-button.google:before {
                 font-family: 'Font Awesome 5 Brands';
                 content: '\\f1a0';
+                display: inline-block;
+                padding-right: 10px;
+                vertical-align: middle;
+                font-weight: 900;
+            }
+            .login-button.auth0:before {
+                font-family: 'Font Awesome 5 Free';
+                content: '\\f0e0'; /* envelope icon */
                 display: inline-block;
                 padding-right: 10px;
                 vertical-align: middle;
@@ -510,15 +519,30 @@ elif st.session_state.consent_given is True and not (hasattr(st.user, 'is_logged
 
     col1, col2, col3 = st.columns([1,1,1])
     with col2:
-        if st.button("Sign in with Google", key="google_login"):
+        if st.button("Sign in with Google", key="google_login", type="secondary", use_container_width=True):
             try:
                 st.login("google")
             except Exception as e:
                 st.error(f"Login failed: {e}")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        if st.button("Sign in with Email", key="auth0_login", type="secondary", use_container_width=True):
+            try:
+                st.login("auth0")
+            except Exception as e:
+                st.error(f"Login failed: {e}")
+
     st.stop()
 
 # --- User IS Logged In ---
 activity_data = calculate_activity_data(st.session_state.input_log, st.session_state.tasks)
+
+# Determine the user's display name for a more personal experience
+user_name = st.user.name
+# If the name is not set or is the email, use the part of the email before the "@"
+if not user_name or user_name == st.user.email:
+    user_name = st.user.email.split('@')[0]
 
 with st.sidebar:
     st.markdown(
@@ -611,7 +635,7 @@ with st.sidebar:
         f"""
         <div class="profile-container">
             <img src="{image_src}" class="profile-picture">
-            <div class="username">{st.user.name}</div>
+            <div class="username">{user_name}</div>
             <div class="stats-grid">
                 <div class="stat-item log-stats">
                     <div class="stat-count">{activity_data["todays_logs"]}</div>
@@ -664,11 +688,21 @@ with st.sidebar:
         else:
             st.warning("This action is irreversible. All your data (inputs, tasks & background info) will be permanently deleted.")
             if st.button("Confirm Purge", key="purge_confirm", type="primary", use_container_width=True):
-                # This functionality should be handled by the backend now.
-                # For now, we can disable it on the frontend.
-                st.error("Data purging is currently handled by the backend administrator.")
-                st.session_state.confirm_purge = False
-                st.rerun()
+                try:
+                    user = st.session_state.user
+                    asyncio.run(purge_user_data(user['id'], user['email']))
+                    st.success("Your data has been successfully purged. You will be logged out.")
+                    st.session_state.confirm_purge = False
+                    # Reset session state and log out
+                    for key in list(st.session_state.keys()):
+                        del st.session_state[key]
+                    st.logout()
+                    st.rerun()
+                except Exception as e:
+                    logger.error(f"Error during data purge: {e}", exc_info=True)
+                    st.error(f"An error occurred during data purge: {e}")
+                    st.session_state.confirm_purge = False
+                    st.rerun()
     
     st.markdown("---") # Separator
     # Link to Privacy Policy and Impressum in sidebar as well
@@ -693,7 +727,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["Chat", "Input Log", "Tasks", "Backgroun
 with tab1:
     # --- Determine personalized chat input placeholder and subheader ---
     if 'chat_subheader_text' not in st.session_state:
-        user_name = st.user.name
         first_name = user_name.split()[0] if user_name else None
         background_info = st.session_state.get('background_info', {})
 
