@@ -1,6 +1,7 @@
 import os
 import tempfile
 import json
+import uuid
 import streamlit as st
 from audiorecorder import audiorecorder
 import datetime as dt
@@ -10,10 +11,11 @@ import base64
 import random
 from streamlit_extras.stylable_container import stylable_container
 import logging
+import asyncio
 
-from utils import (
+from api_client import (
+    create_session,
     get_chat_response,
-    start_new_chat,
     add_log_entry_and_persist,
     add_task_and_persist,
     update_background_info_and_persist,
@@ -23,10 +25,12 @@ from utils import (
     load_tasks,
     load_background_info,
     get_or_create_user,
-    get_db
+    get_recent_metrics,
+    get_subscription_status,
+    subscribe_to_newsletter,
+    unsubscribe_from_newsletter,
+    purge_user_data,
 )
-from newsletter import send_newsletter_for_user
-from database import init_db
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -43,15 +47,6 @@ if not logger.handlers:  # Prevent duplicate handlers if script reruns
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
-
-# --- Database Initialization ---
-try:
-    init_db()
-    logger.info("Database initialization successful.")
-except Exception as e:
-    logger.error(f"Error initializing database: {e}", exc_info=True)
-    st.error("Error initializing database. Please check the logs.")
-    st.stop()
 
 # --- Consent State Initialization ---
 if 'consent_given' not in st.session_state:
@@ -157,8 +152,6 @@ def show_consent_banner():
                     st.rerun()
 
 # --- Initialize Session State ---
-if "conversation_history" not in st.session_state:
-    st.session_state.conversation_history = start_new_chat()
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_audio_duration" not in st.session_state:
@@ -167,18 +160,44 @@ if "last_audio_duration" not in st.session_state:
     st.session_state.counter = 0 # Used for unique keys for recorder/input
 
 # --- Helper Functions ---
-def load_all_data():
-    """Loads all data from the database into the session state."""
-    db = next(get_db())
+async def load_all_data_async():
+    """Loads all data from the backend and initializes the session."""
     try:
-        user = get_or_create_user(db, st.user.email, st.user.name)
-        st.session_state.user = user
-        st.session_state.input_log = load_input_log(db, user.id)
-        st.session_state.background_info = load_background_info(db, user.id)
-        st.session_state.tasks = load_tasks(db, user.id)
-        logger.info("Session state refreshed from database.")
-    finally:
-        db.close()
+        user = st.session_state.get("user")
+        if not user:
+            logger.info("User not found in session state, fetching from backend.")
+            user = await get_or_create_user(st.user.email, st.user.name)
+            st.session_state.user = user
+        else:
+            logger.info("User found in session state.")
+
+        if user:
+            # Create session if it doesn't exist
+            if "session_id" not in st.session_state:
+                st.session_state.session_id = f"test-session-{uuid.uuid4()}"
+                await create_session(user, st.session_state.session_id)
+
+            # Run all loading functions concurrently
+            results = await asyncio.gather(
+                load_input_log(user['id'], user['email'], user['username']),
+                load_background_info(user['id'], user['email'], user['username']),
+                load_tasks(user['id'], user['email'], user['username'])
+            )
+            st.session_state.input_log = results[0]
+            st.session_state.background_info = results[1].get('content', {})
+            st.session_state.tasks = results[2]
+            logger.info("Session state refreshed from backend.")
+        else:
+            st.error("Could not retrieve user information from the backend.")
+            st.stop()
+    except Exception as e:
+        logger.error(f"Error loading data from backend: {e}", exc_info=True)
+        st.error("Could not connect to the backend. Please make sure the server is running.")
+        st.stop()
+
+def load_all_data():
+    """Synchronous wrapper for the async data loading function."""
+    asyncio.run(load_all_data_async())
 
 # --- Initialize Session State and Data ---
 if hasattr(st, 'user') and st.user.is_logged_in:
@@ -310,19 +329,7 @@ def calculate_task_stats(tasks):
     if not tasks:
         return {"open_tasks": 0, "completed_tasks": 0}
 
-    # Convert tasks (which are likely ORM objects) to a list of dicts
-    tasks_for_df = [
-        {
-            "id": task.id,
-            "description": task.description,
-            "status": task.status,
-            "deadline": task.deadline,
-            "created_at": task.created_at
-        }
-        for task in tasks
-    ]
-    
-    df = pd.DataFrame(tasks_for_df)
+    df = pd.DataFrame(tasks)
     
     # Now, the 'status' column should exist
     open_tasks = df[df['status'].isin(['open', 'in_progress'])].shape[0]
@@ -346,17 +353,8 @@ def calculate_activity_data(input_log, tasks):
             **task_stats
         }
 
-    df = pd.DataFrame([
-        {
-            "id": log.id,
-            "user_id": log.user_id,
-            "content": log.content,
-            "category": log.category,
-            "created_at": log.created_at
-        }
-        for log in input_log
-    ])
-    df['date'] = pd.to_datetime(df['created_at']).dt.date
+    df = pd.DataFrame(input_log)
+    df['date'] = pd.to_datetime(df['created_at'], format='ISO8601', errors='coerce').dt.date
     
     todays_logs = df[df['date'] == today].shape[0]
 
@@ -523,6 +521,12 @@ elif st.session_state.consent_given is True and not (hasattr(st.user, 'is_logged
 # --- User IS Logged In ---
 activity_data = calculate_activity_data(st.session_state.input_log, st.session_state.tasks)
 
+# Determine the user's display name for a more personal experience
+user_name = st.user.name
+# If the name is not set or is the email, use the part of the email before the "@"
+if not user_name or user_name == st.user.email:
+    user_name = st.user.email.split('@')[0]
+
 with st.sidebar:
     st.markdown(
         """
@@ -614,7 +618,7 @@ with st.sidebar:
         f"""
         <div class="profile-container">
             <img src="{image_src}" class="profile-picture">
-            <div class="username">{st.user.name}</div>
+            <div class="username">{user_name}</div>
             <div class="stats-grid">
                 <div class="stat-item log-stats">
                     <div class="stat-count">{activity_data["todays_logs"]}</div>
@@ -668,34 +672,19 @@ with st.sidebar:
             st.warning("This action is irreversible. All your data (inputs, tasks & background info) will be permanently deleted.")
             if st.button("Confirm Purge", key="purge_confirm", type="primary", use_container_width=True):
                 try:
-                    db = next(get_db())
-                    user = get_or_create_user(db, st.user.email, st.user.name)
-                    if user:
-                        logger.info(f"Initiating data purge for user: {user.email}")
-                        from utils import purge_user_data
-                        purge_success = purge_user_data(user.id)
-                        if purge_success:
-                            logger.info(f"Main app data purge successful for user: {user.email}")
-                            
-                            # Proceed with logout and session reset
-                            st.session_state.consent_given = None # Reset consent state
-                            st.session_state.confirm_purge = False # Reset confirmation
-                            st.logout() # Log the user out
-                        else:
-                            logger.error(f"Main app data purge failed for user: {user.email}")
-                            st.error("An error occurred during data deletion. Please contact support.")
-                            st.session_state.confirm_purge = False # Reset confirmation on error
-                    else:
-                        logger.warning(f"Attempted purge for non-existent user: {st.user.email}")
-                        st.error("User not found.")
-                        st.session_state.confirm_purge = False
-                except Exception as e:
-                    logger.error(f"Exception during data purge confirmation for {st.user.email}: {e}", exc_info=True)
-                    st.error("An unexpected error occurred during data deletion.")
+                    user = st.session_state.user
+                    asyncio.run(purge_user_data(user['id'], user['email']))
+                    st.success("Your data has been successfully purged. You will be logged out.")
                     st.session_state.confirm_purge = False
-                finally:
-                    if 'db' in locals() and db:
-                        db.close()
+                    # Reset session state and log out
+                    for key in list(st.session_state.keys()):
+                        del st.session_state[key]
+                    st.logout()
+                    st.rerun()
+                except Exception as e:
+                    logger.error(f"Error during data purge: {e}", exc_info=True)
+                    st.error(f"An error occurred during data purge: {e}")
+                    st.session_state.confirm_purge = False
                     st.rerun()
     
     st.markdown("---") # Separator
@@ -721,7 +710,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["Chat", "Input Log", "Tasks", "Backgroun
 with tab1:
     # --- Determine personalized chat input placeholder and subheader ---
     if 'chat_subheader_text' not in st.session_state:
-        user_name = st.user.name
         first_name = user_name.split()[0] if user_name else None
         background_info = st.session_state.get('background_info', {})
 
@@ -811,19 +799,25 @@ with tab1:
                 st.audio(audio_bytes, format="audio/wav")
 
             with st.spinner("Thinking..."):
-                # Pass session state to get_chat_response for function calling
-                response_data = get_chat_response(
-                    st.session_state.conversation_history,
-                    st.session_state,
+                # Backend handles all conversation state
+                user = st.session_state.user
+                response_data = asyncio.run(get_chat_response(
+                    user['id'],
+                    user['email'],
+                    user['username'],
+                    st.session_state.session_id,
                     audio_file_path=tmp_audio_path
-                )
+                ))
             
             # Response_data might be a string or a dict if function calling is involved
+            logger.info(f"Response data from backend: {response_data}")
             if isinstance(response_data, dict):
-                assistant_response = response_data.get("text_response", "Function call processed.")
-                # Further handling for UI updates based on function calls can be added here
+                if "content" in response_data and "parts" in response_data["content"]:
+                    assistant_response = response_data["content"]["parts"][0]["text"]
+                else:
+                    assistant_response = "Function call processed."
             else:
-                assistant_response = response_data
+                assistant_response = "No response from assistant."
 
             st.session_state.messages.append({"role": "assistant", "content": assistant_response})
             st.rerun()
@@ -841,18 +835,24 @@ with tab1:
             st.markdown(prompt)
 
         with st.spinner("Thinking..."):
-            # Pass session state to get_chat_response for function calling
-            response_data = get_chat_response(
-                st.session_state.conversation_history,
-                st.session_state,
+            # Backend handles all conversation state
+            user = st.session_state.user
+            response_data = asyncio.run(get_chat_response(
+                user['id'],
+                user['email'],
+                user['username'],
+                st.session_state.session_id,
                 user_prompt=prompt
-            )
+            ))
 
+        logger.info(f"Response data from backend: {response_data}")
         if isinstance(response_data, dict):
-            assistant_response = response_data.get("text_response", "Function call processed.")
-            # Further handling for UI updates based on function calls can be added here
+            if "content" in response_data and "parts" in response_data["content"]:
+                assistant_response = response_data["content"]["parts"][0]["text"]
+            else:
+                assistant_response = "Function call processed."
         else:
-            assistant_response = response_data
+            assistant_response = "No response from assistant."
 
         st.session_state.messages.append({"role": "assistant", "content": assistant_response})
         st.session_state.counter += 1
@@ -864,22 +864,11 @@ with tab2:
         st.info("No inputs logged yet.")
     else:
         # Sort logs by timestamp descending
-        sorted_logs = sorted(st.session_state.input_log, key=lambda x: x.created_at, reverse=True)
-
-        # Convert list of ORM objects to a list of dictionaries for DataFrame creation
-        logs_for_df = [
-            {
-                "id": log.id,
-                "created_at": log.created_at,
-                "content": log.content,
-                "category": log.category
-            }
-            for log in sorted_logs
-        ]
+        sorted_logs = sorted(st.session_state.input_log, key=lambda x: x['created_at'], reverse=True)
 
         # Use a data editor to allow for changes
         edited_logs_df = st.data_editor(
-            pd.DataFrame(logs_for_df),
+            pd.DataFrame(sorted_logs),
             num_rows="dynamic",
             hide_index=True,
             use_container_width=True,
@@ -900,7 +889,8 @@ with tab2:
 
         if st.button("Save Log Changes"):
             updated_logs = edited_logs_df.to_dict('records')
-            result = update_input_log_and_persist(updated_logs, st.session_state.user)
+            user = st.session_state.user
+            result = asyncio.run(update_input_log_and_persist(updated_logs, user['id'], user['email'], user['username']))
             st.success(result.get("message", "Logs updated!"))
             st.rerun()
 
@@ -909,7 +899,8 @@ with tab2:
         submit_log = st.form_submit_button("Add to Log")
 
         if submit_log and new_log_content:
-            result = add_log_entry_and_persist(new_log_content, st.session_state.user)
+            user = st.session_state.user
+            result = asyncio.run(add_log_entry_and_persist(new_log_content, user['id'], user['email'], user['username']))
             st.success(result.get("message", "Log added successfully!"))
             st.rerun()
 
@@ -921,34 +912,21 @@ with tab3:
         # Tasks are already pre-sorted by the load_tasks function
         sorted_tasks = st.session_state.tasks
         
-        # Convert list of ORM objects to a list of dictionaries for DataFrame creation
-        tasks_for_df = [
-            {
-                "id": task.id,
-                "description": task.description,
-                "status": task.status,
-                "deadline": task.deadline,
-                "created_at": task.created_at,
-                "completed_at": task.completed_at
-            }
-            for task in sorted_tasks
-        ]
-
         # Convert list of dicts to DataFrame for editing
-        df_tasks = pd.DataFrame(tasks_for_df)
+        df_tasks = pd.DataFrame(sorted_tasks)
         # Ensure columns are in a consistent order
         df_tasks = df_tasks[["id", "created_at", "description", "status", "deadline", "completed_at"]]
-        df_tasks["deadline"] = pd.to_datetime(df_tasks["deadline"])
+        # Convert deadline to timezone-aware UTC datetime objects for correct handling
+        df_tasks["deadline"] = pd.to_datetime(df_tasks["deadline"], utc=True)
         df_tasks.rename(columns={"id": "ID", "description": "Description", "status": "Status", "deadline": "Deadline", "created_at": "Created At", "completed_at": "Completed At"}, inplace=True)
 
         edited_tasks_df = st.data_editor(
             df_tasks,
             num_rows="dynamic",
-            hide_index=True,
             use_container_width=True,
             key="data_editor_tasks",
             column_config={
-                "ID": None,
+                "ID": None, # Explicitly hide the ID column
                 "Created At": st.column_config.DatetimeColumn(
                     "Created At",
                     format="YYYY-MM-DD HH:mm:ss",
@@ -969,14 +947,19 @@ with tab3:
                     required=True
                 ),
             },
+            # By not including "ID" in column_order, we also ensure it's not displayed.
             column_order=["Created At", "Description", "Status", "Deadline", "Completed At"]
         )
 
         if st.button("Save Task Changes"):
+            tasks_to_save = edited_tasks_df
+
             # Convert deadline back to ISO string before saving
-            edited_tasks_df['Deadline'] = edited_tasks_df['Deadline'].apply(lambda x: x.isoformat() if pd.notna(x) else None)
-            updated_tasks = edited_tasks_df.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Deadline": "deadline", "Created At": "created_at", "Completed At": "completed_at"}).to_dict('records')
-            result = update_tasks_and_persist(updated_tasks, st.session_state.user)
+            tasks_to_save['Deadline'] = tasks_to_save['Deadline'].apply(lambda x: x.isoformat() if pd.notna(x) else None)
+            updated_tasks = tasks_to_save.rename(columns={"ID": "id", "Description": "description", "Status": "status", "Deadline": "deadline", "Created At": "created_at", "Completed At": "completed_at"}).to_dict('records')
+
+            user = st.session_state.user
+            result = asyncio.run(update_tasks_and_persist(updated_tasks, user['id'], user['email'], user['username']))
             st.success(result.get("message", "Task changes saved!"))
             st.rerun()
 
@@ -1001,7 +984,8 @@ with tab3:
             new_task_deadline_utc = new_task_deadline.astimezone(dt.timezone.utc)
             
             deadline_str = new_task_deadline_utc.isoformat()
-            result = add_task_and_persist(new_task_description, st.session_state.user, deadline=deadline_str)
+            user = st.session_state.user
+            result = asyncio.run(add_task_and_persist(new_task_description, user['id'], user['email'], user['username'], deadline=deadline_str))
             st.success(result.get("message", f"Task '{new_task_description}' added!"))
             st.rerun()
 
@@ -1023,10 +1007,15 @@ with tab4:
             submitted = st.form_submit_button("Save Changes")
             if submitted:
                 try:
-                    # The function expects a JSON string, so this works perfectly
-                    result = update_background_info_and_persist(background_text, st.session_state.user, replace=True)
-                    if result.get("status") == "success":
-                        st.session_state.background_info = result["updated_info"]
+                    with st.spinner("Updating background info..."):
+                        user = st.session_state.user
+                        # The function expects a JSON string, so this works perfectly
+                        result = asyncio.run(update_background_info_and_persist(background_text, user['id'], user['email'], user['username'], replace=True))
+
+                    if result and result.get("status") == "success":
+                        # Ensure 'updated_info' is present in the response
+                        if "updated_info" in result:
+                            st.session_state.background_info = result["updated_info"]["content"]
                         st.success(result.get("message", "Background information updated!"))
                         toggle_edit_mode() # Exit edit mode on success
                         st.rerun()
@@ -1050,58 +1039,62 @@ with tab4:
                 st.rerun()
 
 with tab5:
-    st.header("Manual Newsletter Trigger")
-    st.write("Select a persona and click the button below to trigger a newsletter send to your own email address.")
-    st.warning("Note: This requires SMTP environment variables to be set correctly in your project's `.env` file (e.g., `SMTP_HOST`, `SMTP_PORT`, `SMTP_PASSWORD`).", icon="⚠️")
+    if not st.user or not hasattr(st.user, 'email'):
+        st.warning("Please log in to manage newsletter subscriptions and log daily metrics.")
+        st.stop()
 
-    # --- Persona Selection ---
-    persona_dir = "persona_prompts/"
+    user_email = st.user.email
+
+    st.subheader("Your Recent Mood Check-ins")
     try:
-        persona_files = sorted([f for f in os.listdir(persona_dir) if f.endswith('.txt')])
-        persona_names = [os.path.splitext(f)[0].replace('_prompt', '').replace('_', ' ').title() for f in persona_files]
-        
-        # Default to 'Pragmatist' if available
-        default_persona = "Pragmatist"
-        default_index = 0
-        if default_persona in persona_names:
-            default_index = persona_names.index(default_persona)
-        
-        selected_persona_name = st.selectbox(
-            "Choose a Persona for your Newsletter:",
-            options=persona_names,
-            index=default_index
-        )
+        metrics_data = asyncio.run(get_recent_metrics(user_email))
+        if metrics_data and isinstance(metrics_data, list) and len(metrics_data) > 0:
+            df_metrics = pd.DataFrame(metrics_data)
+            display_columns_map = {
+                "metric_date": "Date",
+                "morning_mood_subjective": "Logged Mood"
+            }
+            cols_to_display = [col for col in display_columns_map.keys() if col in df_metrics.columns]
 
-        if st.button("Send Newsletter Now", key="send_newsletter_btn"):
-            # Find the corresponding file for the selected persona name
-            selected_persona_file = ""
-            for i, name in enumerate(persona_names):
-                if name == selected_persona_name:
-                    selected_persona_file = persona_files[i]
-                    break
-            
-            if selected_persona_file:
-                with open(os.path.join(persona_dir, selected_persona_file), 'r') as f:
-                    persona_prompt = f.read()
-
-                with st.spinner(f"Sending newsletter with '{selected_persona_name}' persona..."):
-                    result = send_newsletter_for_user(
-                        user_id=st.session_state.user.id,
-                        user_email=st.user.email,
-                        user_name=st.user.name,
-                        session_state=st.session_state,
-                        persona_prompt=persona_prompt,
-                        persona_name=selected_persona_name
-                    )
-
-                if result.get("status") == "success":
-                    st.success(result.get("message", "Newsletter sent successfully!"))
-                else:
-                    st.error(result.get("message", "An unknown error occurred."))
+            if "morning_mood_subjective" not in cols_to_display:
+                st.info("No recent mood check-ins with mood data found.")
             else:
-                st.error("Could not find the selected persona file.")
-
-    except FileNotFoundError:
-        st.error(f"Persona prompts directory not found at '{persona_dir}'. Please ensure it exists.")
+                df_display = df_metrics[cols_to_display].rename(columns=display_columns_map)
+                ordered_display_cols = [display_columns_map[col] for col in cols_to_display]
+                df_display = df_display[ordered_display_cols]
+                if not df_display.empty:
+                    st.dataframe(df_display, hide_index=True, use_container_width=True)
+                else:
+                    st.info("No recent mood check-ins with mood data found.")
+        else:
+            st.info("No recent mood check-ins found.")
     except Exception as e:
-        st.error(f"An error occurred while loading personas: {e}")
+        st.error(f"An error occurred while fetching recent check-ins: {e}")
+
+    st.markdown("---")
+    st.subheader("Manage Newsletter")
+
+    try:
+        subscription_data = asyncio.run(get_subscription_status(user_email))
+        subscribed = subscription_data.get("subscribed", False)
+
+        if subscribed:
+            st.success("You are currently subscribed to the daily newsletter.")
+            if st.button("Unsubscribe from Newsletter", key="unsubscribe_newsletter_btn"):
+                try:
+                    asyncio.run(unsubscribe_from_newsletter(user_email))
+                    st.success("Successfully unsubscribed!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to unsubscribe: {e}")
+        else:
+            st.info("You are not currently subscribed to the daily newsletter.")
+            if st.button("Subscribe to Daily Newsletter", key="subscribe_newsletter_btn"):
+                try:
+                    asyncio.run(subscribe_to_newsletter(user_email))
+                    st.success("Successfully subscribed!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to subscribe: {e}")
+    except Exception as e:
+        st.error(f"Could not retrieve subscription status: {e}")
