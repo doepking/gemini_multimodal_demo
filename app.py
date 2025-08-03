@@ -477,7 +477,7 @@ elif st.session_state.consent_given is True and not (hasattr(st.user, 'is_logged
     # Custom CSS for the Google Sign-In button
     st.markdown("""
         <style>
-            .login-button {
+            div[data-testid="stButton"] > button {
                 background-color: white;
                 color: black;
                 padding: 10px 20px;
@@ -494,21 +494,13 @@ elif st.session_state.consent_given is True and not (hasattr(st.user, 'is_logged
                 margin-right: auto;
                 width: fit-content;
             }
-            .login-button:hover {
+            div[data-testid="stButton"] > button:hover {
                 box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.4);
                 transform: translateY(-2px);
             }
-            .login-button.google:before {
+            div[data-testid="stButton"] > button:before {
                 font-family: 'Font Awesome 5 Brands';
                 content: '\\f1a0';
-                display: inline-block;
-                padding-right: 10px;
-                vertical-align: middle;
-                font-weight: 900;
-            }
-            .login-button.auth0:before {
-                font-family: 'Font Awesome 5 Free';
-                content: '\\f0e0'; /* envelope icon */
                 display: inline-block;
                 padding-right: 10px;
                 vertical-align: middle;
@@ -519,20 +511,11 @@ elif st.session_state.consent_given is True and not (hasattr(st.user, 'is_logged
 
     col1, col2, col3 = st.columns([1,1,1])
     with col2:
-        if st.button("Sign in with Google", key="google_login", type="secondary", use_container_width=True):
+        if st.button("Sign in with Google", key="google_login"):
             try:
                 st.login("google")
             except Exception as e:
                 st.error(f"Login failed: {e}")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        if st.button("Sign in with Email", key="auth0_login", type="secondary", use_container_width=True):
-            try:
-                st.login("auth0")
-            except Exception as e:
-                st.error(f"Login failed: {e}")
-
     st.stop()
 
 # --- User IS Logged In ---
